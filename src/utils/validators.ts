@@ -15,6 +15,20 @@ export const ChangePasswordSchema = z.object({
   path: ['confirm_password'],
 })
 
+export const ResetPasswordRequestSchema = z.object({
+  email: z.string().email('Invalid email address'),
+})
+
+export const ResetPasswordWithTokenSchema = z.object({
+  access_token: z.string().min(1, 'Token is required'),
+  new_password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirm_password: z.string(),
+}).refine(d => d.new_password === d.confirm_password, {
+  message: 'Passwords do not match',
+  path: ['confirm_password'],
+})
+
+
 // ── Departments ───────────────────────────────────────────────────────
 
 export const CreateDepartmentSchema = z.object({

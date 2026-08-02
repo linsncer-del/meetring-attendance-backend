@@ -68,3 +68,57 @@ export const getProfile = async (userId: string): Promise<Profile> => {
   if (error || !data) throw new Error('Profile not found')
   return data as Profile
 }
+
+// ── Request Password Reset ───────────────────────────────────────────
+
+export const requestPasswordReset = async (email: string, redirectOrigin?: string) => {
+  const { data: profile, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('email', email.trim().toLowerCase())
+    .single()
+
+  if (error || !profile) {
+    throw new Error('Access Denied: Account not found. Non-admin users must contact the ICT Administrator.')
+  }
+
+  if (profile.role !== 'ict_admin') {
+    throw new Error('Access Denied: Non-admin users cannot reset passwords directly. Please contact your ICT Administrator to reset your password.')
+  }
+
+  if (!profile.is_active) {
+    throw new Error('Account is disabled. Contact the ICT Administrator.')
+  }
+
+  const redirectTo = redirectOrigin ? `${redirectOrigin}/reset-password` : undefined
+  const { error: resetErr } = await supabaseAnon.auth.resetPasswordForEmail(email, { redirectTo })
+
+  if (resetErr) {
+    throw new Error(resetErr.message)
+  }
+
+  return {
+    success: true,
+    message: 'Password reset instructions have been sent to your administrator email address.',
+    profile,
+  }
+}
+
+// ── Reset Password With Token ────────────────────────────────────────
+
+export const resetPasswordWithToken = async (accessToken: string, newPassword: string) => {
+  const client = supabaseAnon
+  await client.auth.setSession({ access_token: accessToken, refresh_token: '' })
+  const { data, error } = await client.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(error.message)
+
+  if (data.user?.id) {
+    await supabaseAdmin
+      .from('profiles')
+      .update({ must_change_password: false, updated_at: new Date().toISOString() })
+      .eq('id', data.user.id)
+  }
+
+  return { success: true, message: 'Password updated successfully' }
+}
+

@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import * as AuthService from './Authservice.js'
 import { ok, badRequest, serverError } from '../utils/response.js'
-import { LoginSchema, ChangePasswordSchema } from '../utils/validators.js'
+import { LoginSchema, ChangePasswordSchema, ResetPasswordRequestSchema, ResetPasswordWithTokenSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
 import type { HonoVariables } from '../types/index.js'
 
@@ -74,6 +74,45 @@ export const changePassword = async (c: Context<{ Variables: HonoVariables }>) =
   }
 }
 
+// ── POST /api/auth/reset-password-request ─────────────────────────────
+
+export const requestPasswordReset = async (c: Context) => {
+  try {
+    const body = await c.req.json()
+    const parsed = ResetPasswordRequestSchema.safeParse(body)
+    if (!parsed.success) return badRequest(c, parsed.error.issues[0].message)
+
+    const origin = c.req.header('origin') || c.req.header('referer')
+    const result = await AuthService.requestPasswordReset(parsed.data.email, origin)
+
+    const ip = c.req.header('x-forwarded-for') ?? undefined
+    if (result.profile?.id) {
+      writeAuditLog(result.profile.id, 'user_password_reset', `Admin password reset requested for ${parsed.data.email}`, ip)
+    }
+
+    return ok(c, { message: result.message })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to request password reset'
+    return badRequest(c, message)
+  }
+}
+
+// ── POST /api/auth/reset-password ────────────────────────────────────
+
+export const resetPasswordWithToken = async (c: Context) => {
+  try {
+    const body = await c.req.json()
+    const parsed = ResetPasswordWithTokenSchema.safeParse(body)
+    if (!parsed.success) return badRequest(c, parsed.error.issues[0].message)
+
+    const result = await AuthService.resetPasswordWithToken(parsed.data.access_token, parsed.data.new_password)
+    return ok(c, { message: result.message })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to reset password'
+    return badRequest(c, message)
+  }
+}
+
 // ── GET /api/auth/me ─────────────────────────────────────────────────
 
 export const me = async (c: Context<{ Variables: HonoVariables }>) => {
@@ -85,3 +124,4 @@ export const me = async (c: Context<{ Variables: HonoVariables }>) => {
     return serverError(c)
   }
 }
+

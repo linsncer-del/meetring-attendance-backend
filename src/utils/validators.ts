@@ -112,6 +112,40 @@ export const GenerateReportSchema = z.object({
   meeting_id: z.string().uuid(),
 })
 
+// ── Document Platform ─────────────────────────────────────────────────
+
+export const UploadTemplateSchema = z.object({
+  name: z.string().min(1, 'Template name is required').max(200),
+  description: z.string().optional(),
+  category: z.string().default('attendance_register'),
+})
+
+export const UpdateTemplateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  is_default: z.boolean().optional(),
+})
+
+export const RenderDocumentSchema = z.object({
+  template_id: z.string().uuid(),
+  format: z.enum(['pdf', 'docx']).default('pdf'),
+  version: z.number().int().positive().optional(),
+  document_number: z.string().max(50).optional(),
+})
+
+export const UpdateOrganizationSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  short_name: z.string().max(50).optional(),
+  address: z.string().optional(),
+  phone: z.string().max(50).optional(),
+  email: z.string().email().optional(),
+  website: z.string().max(200).optional(),
+  vision: z.string().optional(),
+  mission: z.string().optional(),
+  core_values: z.string().optional(),
+})
+
 // ── Pagination ────────────────────────────────────────────────────────
 
 export const PaginationSchema = z.object({

@@ -15,6 +15,7 @@ import attendanceRouter from './attendance/attendance.routes.js'
 import reportsRouter from './reports/reports.routes.js'
 import notifRouter from './notifications/notifications.routes.js'
 import auditRouter from './audit/audit.routes.js'
+import documentsRouter from './documents/documents.routes.js'
 
 import type { HonoVariables } from './types/index.js'
 
@@ -76,6 +77,7 @@ app.route('/api/attendance', attendanceRouter)
 app.route('/api/reports', reportsRouter)
 app.route('/api/notifications', notifRouter)
 app.route('/api/audit', auditRouter)
+app.route('/api/documents', documentsRouter)
 
 // ── 404 handler ───────────────────────────────────────────────────────
 

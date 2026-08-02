@@ -42,6 +42,10 @@ export type AuditAction =
   | 'user_created'
   | 'user_disabled'
   | 'user_password_reset'
+  | 'template_uploaded'
+  | 'template_updated'
+  | 'document_generated'
+  | 'asset_uploaded'
   | 'other'
 
 // ── Database row shapes ──────────────────────────────────────────────
@@ -145,6 +149,85 @@ export interface AuditLog {
   details: string | null
   ip_address: string | null
   created_at: string
+}
+
+// ── Document Platform ────────────────────────────────────────────────
+
+export interface OrganizationProfile {
+  id: string
+  name: string
+  short_name: string | null
+  logo_url: string | null
+  address: string | null
+  phone: string | null
+  email: string | null
+  website: string | null
+  vision: string | null
+  mission: string | null
+  core_values: string | null
+  stamp_url: string | null
+  seal_url: string | null
+  watermark_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DocumentTemplate {
+  template_id: string
+  name: string
+  description: string | null
+  category: string
+  is_default: boolean
+  is_active: boolean
+  current_version: number
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface TemplateVersion {
+  version_id: string
+  template_id: string
+  version_number: number
+  file_path: string
+  file_size: number | null
+  metadata: TemplateMeta | null
+  changelog: string | null
+  created_by: string
+  created_at: string
+}
+
+export interface TemplateMeta {
+  headers: number
+  footers: number
+  tables: number
+  images: number
+  placeholders: string[]
+  unknownPlaceholders: string[]
+  warnings: string[]
+}
+
+export interface OrganizationAsset {
+  asset_id: string
+  name: string
+  asset_type: string
+  file_path: string
+  mime_type: string | null
+  file_size: number | null
+  uploaded_by: string
+  created_at: string
+}
+
+export interface GeneratedDocument {
+  document_id: string
+  meeting_id: string
+  template_id: string | null
+  version_used: number | null
+  file_path: string
+  format: string
+  document_number: string | null
+  generated_by: string
+  generated_at: string
 }
 
 // ── Hono context variable types ──────────────────────────────────────

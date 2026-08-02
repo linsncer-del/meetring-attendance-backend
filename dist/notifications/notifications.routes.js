@@ -1,0 +1,10 @@
+import { Hono } from 'hono';
+import { authMiddleware } from '../middleware/auth.middleware.js';
+import { list, unreadCount, markRead, markAllRead } from './notifications.controller.js';
+const notifRouter = new Hono();
+notifRouter.use('*', authMiddleware);
+notifRouter.get('/', list);
+notifRouter.get('/unread-count', unreadCount);
+notifRouter.patch('/read-all', markAllRead);
+notifRouter.patch('/:id/read', markRead);
+export default notifRouter;

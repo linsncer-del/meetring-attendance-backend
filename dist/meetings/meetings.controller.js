@@ -79,31 +79,33 @@ export const update = async (c) => {
         return badRequest(c, message);
     }
 };
-// POST /api/meetings/:id/open-attendance
-export const openAttendance = async (c) => {
+// POST /api/meetings/sessions/:sessionId/open-attendance
+export const openSessionAttendance = async (c) => {
     try {
         const user = c.get('user');
-        await MeetingsService.openAttendance(c.req.param('id') || '', user.id, user.role);
+        const sessionId = c.req.param('sessionId') || '';
+        await MeetingsService.openSessionAttendance(sessionId, user.id, user.role);
         const ip = c.req.header('x-forwarded-for') ?? undefined;
-        writeAuditLog(user.id, 'attendance_opened', `Opened attendance for meeting: ${c.req.param('id') || ''}`, ip);
-        return ok(c, { message: 'Attendance is now OPEN' });
+        writeAuditLog(user.id, 'attendance_opened', `Opened attendance for session: ${sessionId}`, ip);
+        return ok(c, { message: 'Session attendance is now OPEN' });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to open attendance';
+        const message = err instanceof Error ? err.message : 'Failed to open session attendance';
         return badRequest(c, message);
     }
 };
-// POST /api/meetings/:id/close-attendance
-export const closeAttendance = async (c) => {
+// POST /api/meetings/sessions/:sessionId/close-attendance
+export const closeSessionAttendance = async (c) => {
     try {
         const user = c.get('user');
-        await MeetingsService.closeAttendance(c.req.param('id') || '', user.id, user.role);
+        const sessionId = c.req.param('sessionId') || '';
+        await MeetingsService.closeSessionAttendance(sessionId, user.id, user.role);
         const ip = c.req.header('x-forwarded-for') ?? undefined;
-        writeAuditLog(user.id, 'attendance_closed', `Closed attendance for meeting: ${c.req.param('id') || ''}`, ip);
-        return ok(c, { message: 'Attendance is now CLOSED' });
+        writeAuditLog(user.id, 'attendance_closed', `Closed attendance for session: ${sessionId}`, ip);
+        return ok(c, { message: 'Session attendance is now CLOSED' });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to close attendance';
+        const message = err instanceof Error ? err.message : 'Failed to close session attendance';
         return badRequest(c, message);
     }
 };

@@ -88,8 +88,7 @@ export const buildReportHtml = (data) => {
   <div class="detail-grid">
     <div class="detail-item"><label>Title</label><p>${meeting.title}</p></div>
     <div class="detail-item"><label>Type</label><p><span class="badge badge-${meeting.meeting_type}">${meeting.meeting_type.toUpperCase()}</span></p></div>
-    <div class="detail-item"><label>Date</label><p>${formatDate(meeting.meeting_date)}</p></div>
-    <div class="detail-item"><label>Time</label><p>${meeting.start_time} — ${meeting.end_time}</p></div>
+    <div class="detail-item"><label>Date</label><p>${formatDate(meeting.start_date)}${meeting.end_date && meeting.end_date !== meeting.start_date ? ' to ' + formatDate(meeting.end_date) : ''}</p></div>
     <div class="detail-item"><label>Venue</label><p>${meeting.venue ?? '—'}</p></div>
     <div class="detail-item"><label>Virtual Link</label><p>${meeting.virtual_link ?? '—'}</p></div>
     <div class="detail-item"><label>Department</label><p>${departmentName}</p></div>

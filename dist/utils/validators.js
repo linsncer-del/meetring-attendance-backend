@@ -11,6 +11,17 @@ export const ChangePasswordSchema = z.object({
     message: 'Passwords do not match',
     path: ['confirm_password'],
 });
+export const ResetPasswordRequestSchema = z.object({
+    email: z.string().email('Invalid email address'),
+});
+export const ResetPasswordWithTokenSchema = z.object({
+    access_token: z.string().min(1, 'Token is required'),
+    new_password: z.string().min(8, 'Password must be at least 8 characters'),
+    confirm_password: z.string(),
+}).refine(d => d.new_password === d.confirm_password, {
+    message: 'Passwords do not match',
+    path: ['confirm_password'],
+});
 // ── Departments ───────────────────────────────────────────────────────
 export const CreateDepartmentSchema = z.object({
     department_code: z.string().min(1).max(20),
@@ -34,24 +45,36 @@ export const UpdateUserSchema = z.object({
     department_id: z.string().uuid().nullable().optional(),
 });
 // ── Meetings ──────────────────────────────────────────────────────────
+export const SessionSchema = z.object({
+    session_date: z.string().min(1, 'Session date is required'),
+    session_number: z.number().int().min(1).default(1),
+    start_time: z.string().min(1, 'Start time is required'),
+    end_time: z.string().min(1, 'End time is required'),
+    attendance_open_time: z.string().min(1, 'Attendance open time is required'),
+    attendance_close_time: z.string().min(1, 'Attendance close time is required'),
+});
 export const CreateMeetingSchema = z.object({
     title: z.string().min(1, 'Title is required').max(200),
     description: z.string().optional().nullable().or(z.literal('')),
     meeting_type: z.enum(['physical', 'virtual', 'hybrid']),
     venue: z.string().max(255).optional().nullable().or(z.literal('')),
     virtual_link: z.string().optional().nullable().or(z.literal('')),
-    meeting_date: z.string().min(1, 'Meeting date is required'),
-    start_time: z.string().min(1, 'Start time is required'),
-    end_time: z.string().min(1, 'End time is required'),
-    attendance_open_time: z.string().min(1, 'Attendance open time is required'),
-    attendance_close_time: z.string().min(1, 'Attendance close time is required'),
+    start_date: z.string().min(1, 'Start date is required').optional(),
+    end_date: z.string().min(1, 'End date is required').optional(),
+    meeting_date: z.string().optional(), // For single-day backward compatibility
+    start_time: z.string().optional(),
+    end_time: z.string().optional(),
+    attendance_open_time: z.string().optional(),
+    attendance_close_time: z.string().optional(),
     department_id: z.string().optional().nullable().or(z.literal('')),
     meeting_pin: z.string().optional().nullable().or(z.literal('')),
+    sessions: z.array(SessionSchema).min(1, 'At least one session is required').optional(),
 });
 export const UpdateMeetingSchema = CreateMeetingSchema.partial();
 // ── Attendance — Staff ────────────────────────────────────────────────
 export const SubmitStaffAttendanceSchema = z.object({
     meeting_id: z.string().uuid(),
+    session_id: z.string().uuid(),
     meeting_pin: z.string().min(1, 'PIN is required'),
     participant_type: z.literal('staff'),
     full_name: z.string().min(1).max(150),
@@ -62,6 +85,7 @@ export const SubmitStaffAttendanceSchema = z.object({
 // ── Attendance — Visitor ──────────────────────────────────────────────
 export const SubmitVisitorAttendanceSchema = z.object({
     meeting_id: z.string().uuid(),
+    session_id: z.string().uuid(),
     meeting_pin: z.string().min(1, 'PIN is required'),
     participant_type: z.literal('visitor'),
     full_name: z.string().min(1).max(150),
@@ -77,6 +101,35 @@ export const SubmitAttendanceSchema = z.discriminatedUnion('participant_type', [
 // ── Reports ───────────────────────────────────────────────────────────
 export const GenerateReportSchema = z.object({
     meeting_id: z.string().uuid(),
+});
+// ── Document Platform ─────────────────────────────────────────────────
+export const UploadTemplateSchema = z.object({
+    name: z.string().min(1, 'Template name is required').max(200),
+    description: z.string().optional(),
+    category: z.string().default('attendance_register'),
+});
+export const UpdateTemplateSchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().optional(),
+    category: z.string().optional(),
+    is_default: z.boolean().optional(),
+});
+export const RenderDocumentSchema = z.object({
+    template_id: z.string().uuid(),
+    format: z.enum(['pdf', 'docx']).default('pdf'),
+    version: z.number().int().positive().optional(),
+    document_number: z.string().max(50).optional(),
+});
+export const UpdateOrganizationSchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    short_name: z.string().max(50).optional(),
+    address: z.string().optional(),
+    phone: z.string().max(50).optional(),
+    email: z.string().email().optional(),
+    website: z.string().max(200).optional(),
+    vision: z.string().optional(),
+    mission: z.string().optional(),
+    core_values: z.string().optional(),
 });
 // ── Pagination ────────────────────────────────────────────────────────
 export const PaginationSchema = z.object({

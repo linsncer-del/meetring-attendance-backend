@@ -34,7 +34,7 @@ export const getTemplate = async (c: Context<{ Variables: HonoVariables }>) => {
 export const uploadTemplate = async (c: Context<{ Variables: HonoVariables }>) => {
   try {
     const user = c.get('user')
-    const body = await c.req.parseBody()
+    const body = await c.req.parseBody({ all: true })
     const file = body['file'] as File
     const name = body['name'] as string
     const description = body['description'] as string
@@ -85,7 +85,7 @@ export const uploadNewVersion = async (c: Context<{ Variables: HonoVariables }>)
   try {
     const user = c.get('user')
     const id = c.req.param('id') || ''
-    const body = await c.req.parseBody()
+    const body = await c.req.parseBody({ all: true })
     const file = body['file'] as File
     const changelog = body['changelog'] as string || 'New version uploaded'
 
@@ -148,7 +148,7 @@ export const listAssets = async (c: Context<{ Variables: HonoVariables }>) => {
 export const uploadAsset = async (c: Context<{ Variables: HonoVariables }>) => {
   try {
     const user = c.get('user')
-    const body = await c.req.parseBody()
+    const body = await c.req.parseBody({ all: true })
     const file = body['file'] as File
     const name = body['name'] as string
     const assetType = body['asset_type'] as string

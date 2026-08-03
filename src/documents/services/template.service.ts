@@ -25,7 +25,7 @@ export async function uploadTemplate(file: File, name: string, description: stri
     
   if (templateError) throw templateError
 
-  const filePath = `templates/${template.id}/v1.docx`
+  const filePath = `templates/${template.template_id}/v1.docx`
   
   const { error: uploadError } = await supabaseAdmin.storage
     .from('kmtams-documents')
@@ -39,12 +39,12 @@ export async function uploadTemplate(file: File, name: string, description: stri
   const { error: versionError } = await supabaseAdmin
     .from('template_versions')
     .insert({
-      template_id: template.id,
+      template_id: template.template_id,
       version_number: 1,
       file_path: filePath,
       created_by: userId,
       changelog: 'Initial version',
-      meta: meta
+      metadata: meta
     })
     
   if (versionError) throw versionError
@@ -129,7 +129,7 @@ export async function uploadNewVersion(templateId: string, file: File, changelog
       file_path: filePath,
       created_by: userId,
       changelog,
-      meta: meta
+      metadata: meta
     })
     .select('*')
     .single()

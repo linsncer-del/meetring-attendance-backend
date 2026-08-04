@@ -2,27 +2,36 @@ import { supabaseAdmin } from '../../config/supabase.js'
 import type { DocumentData } from '../types.js'
 
 export async function getMeetingDocumentData(meetingId: string, generatedBy: string): Promise<DocumentData> {
-  // Fetch meeting with all related data
+  // Fetch meeting with department and organizer info
   const { data: meeting, error: meetingError } = await supabaseAdmin
     .from('meetings')
     .select(`
       *,
-      departments:department_id(name),
-      organizer:created_by(first_name, last_name),
-      staff_attendance(
-        id, status, type, designation, signature_url,
-        users:user_id(first_name, last_name, designation, department_id),
-        department:department_id(name)
-      ),
-      visitor_attendance(
-        id, status, type, designation, organization, signature_url,
-        visitors:visitor_id(first_name, last_name, designation, organization)
-      )
+      departments:department_id(name, department_code),
+      organizer:created_by(full_name, email)
     `)
-    .eq('id', meetingId)
+    .eq('meeting_id', meetingId)
     .single()
 
-  if (meetingError) throw new Error(`Failed to fetch meeting data: ${meetingError.message}`)
+  if (meetingError || !meeting) throw new Error(`Failed to fetch meeting data: ${meetingError?.message || 'Meeting not found'}`)
+
+  // Fetch attendance_staff for this meeting
+  const { data: staffRows, error: staffError } = await supabaseAdmin
+    .from('attendance_staff')
+    .select('*, departments:department_id(name, department_code)')
+    .eq('meeting_id', meetingId)
+    .order('submitted_at', { ascending: true })
+
+  if (staffError) throw new Error(`Failed to fetch staff attendance: ${staffError.message}`)
+
+  // Fetch attendance_visitor for this meeting
+  const { data: visitorRows, error: visitorError } = await supabaseAdmin
+    .from('attendance_visitor')
+    .select('*')
+    .eq('meeting_id', meetingId)
+    .order('submitted_at', { ascending: true })
+
+  if (visitorError) throw new Error(`Failed to fetch visitor attendance: ${visitorError.message}`)
 
   // Fetch organization profile
   const { data: orgProfile, error: orgError } = await supabaseAdmin
@@ -40,32 +49,32 @@ export async function getMeetingDocumentData(meetingId: string, generatedBy: str
   const participants = []
 
   // Add staff
-  if (meeting.staff_attendance) {
-    for (const p of meeting.staff_attendance) {
+  if (staffRows) {
+    for (const p of staffRows) {
       participants.push({
         sno: sno++,
-        name: p.users ? `${p.users.first_name} ${p.users.last_name}` : 'Unknown',
-        designation: p.designation || (p.users ? p.users.designation : ''),
-        organization: orgProfile?.short_name || orgProfile?.name || '',
-        department: p.department?.name || (p.users?.department_id ? 'Unknown Dept' : ''), // Ideally resolve user's dept
-        signature: p.signature_url || '',
-        status: p.status,
+        name: p.full_name || 'Unknown',
+        designation: p.designation || '',
+        organization: orgProfile?.short_name || orgProfile?.name || 'KeNHA',
+        department: p.departments?.name || '',
+        signature: p.signature_data || '',
+        status: 'present',
         type: 'staff' as const
       })
     }
   }
 
   // Add visitors
-  if (meeting.visitor_attendance) {
-    for (const p of meeting.visitor_attendance) {
+  if (visitorRows) {
+    for (const p of visitorRows) {
       participants.push({
         sno: sno++,
-        name: p.visitors ? `${p.visitors.first_name} ${p.visitors.last_name}` : 'Unknown',
-        designation: p.designation || (p.visitors ? p.visitors.designation : ''),
-        organization: p.organization || (p.visitors ? p.visitors.organization : ''),
+        name: p.full_name || 'Unknown',
+        designation: p.position_title || '',
+        organization: p.organization || '',
         department: '',
-        signature: p.signature_url || '',
-        status: p.status,
+        signature: p.signature_data || '',
+        status: 'present',
         type: 'visitor' as const
       })
     }
@@ -88,13 +97,13 @@ export async function getMeetingDocumentData(meetingId: string, generatedBy: str
     },
     meeting: {
       title: meeting.title,
-      date: new Date(meeting.date).toLocaleDateString(),
-      time: meeting.time,
+      date: meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleDateString() : '',
+      time: `${meeting.start_time || ''} - ${meeting.end_time || ''}`,
       venue: meeting.venue || '',
       type: meeting.meeting_type,
       reference: meeting.reference || '',
       department: meeting.departments?.name || '',
-      organizer: meeting.organizer ? `${meeting.organizer.first_name} ${meeting.organizer.last_name}` : 'Unknown',
+      organizer: meeting.organizer?.full_name || 'Unknown',
       description: meeting.description || ''
     },
     participants,
@@ -107,3 +116,4 @@ export async function getMeetingDocumentData(meetingId: string, generatedBy: str
 
   return docData
 }
+

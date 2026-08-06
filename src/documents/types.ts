@@ -48,7 +48,7 @@ export interface PlaceholderDefinition {
 }
 
 export interface RenderOptions {
-  templateId: string
+  templateId?: string
   meetingId: string
   format: 'pdf' | 'docx'
   version?: number

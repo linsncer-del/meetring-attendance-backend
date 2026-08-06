@@ -70,7 +70,7 @@ export async function getTemplate(id: string) {
       *,
       template_versions (*)
     `)
-    .eq('id', id)
+    .eq('template_id', id)
     .single()
     
   if (error) throw error
@@ -81,7 +81,7 @@ export async function updateTemplate(id: string, updates: any) {
   const { data, error } = await supabaseAdmin
     .from('document_templates')
     .update(updates)
-    .eq('id', id)
+    .eq('template_id', id)
     .select('*')
     .single()
     
@@ -143,7 +143,7 @@ export async function deleteTemplate(id: string) {
   const { error } = await supabaseAdmin
     .from('document_templates')
     .update({ is_active: false })
-    .eq('id', id)
+    .eq('template_id', id)
     
   if (error) throw error
 }
@@ -181,7 +181,7 @@ export async function setDefaultTemplate(templateId: string) {
   const { data: template, error: templateError } = await supabaseAdmin
     .from('document_templates')
     .select('category')
-    .eq('id', templateId)
+    .eq('template_id', templateId)
     .single()
     
   if (templateError) throw templateError
@@ -196,7 +196,7 @@ export async function setDefaultTemplate(templateId: string) {
   const { data, error } = await supabaseAdmin
     .from('document_templates')
     .update({ is_default: true })
-    .eq('id', templateId)
+    .eq('template_id', templateId)
     .select('*')
     .single()
     

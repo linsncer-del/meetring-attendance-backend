@@ -128,7 +128,7 @@ export const UpdateTemplateSchema = z.object({
 })
 
 export const RenderDocumentSchema = z.object({
-  template_id: z.string().uuid(),
+  template_id: z.string().uuid().optional(),
   format: z.enum(['pdf', 'docx']).default('pdf'),
   version: z.number().int().positive().optional(),
   document_number: z.string().max(50).optional(),

@@ -11,7 +11,7 @@ import { generatePdfFromHtml, buildReportHtml } from '../../utils/pdfReport.js'
 
 export async function renderDocument(options: RenderOptions) {
   // 1. Get meeting document data (always called)
-  const documentData = await getMeetingDocumentData(options.meetingId, options.userId)
+  const documentData = await getMeetingDocumentData(options.meetingId, options.userId, options.scope)
 
   let finalBuffer: Buffer | null = null
   let finalFormat = options.format
@@ -149,7 +149,10 @@ export async function renderDocument(options: RenderOptions) {
       upsert: true
     })
 
-  if (uploadError) throw uploadError
+  if (uploadError) {
+    console.error('[Renderer Service] Storage upload failed:', uploadError)
+    throw new Error(`Storage upload failed: ${uploadError.message}`)
+  }
 
   const { data: publicUrlData } = supabaseAdmin.storage
     .from('kmtams-assets')
@@ -157,21 +160,27 @@ export async function renderDocument(options: RenderOptions) {
 
   const downloadUrl = publicUrlData.publicUrl
 
-  // Create generated_documents record
-  const { error: dbError } = await supabaseAdmin
-    .from('generated_documents')
-    .insert({
-      document_id: documentId,
-      template_id: options.templateId || null,
-      version_used: options.version ?? 1,
-      meeting_id: options.meetingId,
-      generated_by: options.userId,
-      file_path: filePath,
-      format: finalFormat,
-      document_number: options.documentNumber ?? null
-    })
+  // Create generated_documents record (non-fatal if table not migrated)
+  try {
+    const { error: dbError } = await supabaseAdmin
+      .from('generated_documents')
+      .insert({
+        document_id: documentId,
+        template_id: options.templateId || null,
+        version_used: options.version ?? 1,
+        meeting_id: options.meetingId,
+        generated_by: options.userId,
+        file_path: filePath,
+        format: finalFormat,
+        document_number: options.documentNumber ?? null
+      })
 
-  if (dbError) throw dbError
+    if (dbError) {
+      console.warn('[Renderer Service] generated_documents record warning:', dbError.message)
+    }
+  } catch (dbErr) {
+    console.warn('[Renderer Service] generated_documents insert notice:', dbErr)
+  }
 
   return { downloadUrl, format: finalFormat, documentId }
 }

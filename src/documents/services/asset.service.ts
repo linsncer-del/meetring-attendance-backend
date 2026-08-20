@@ -9,7 +9,7 @@ export async function uploadAsset(file: File, name: string, assetType: string, u
   const buffer = Buffer.from(arrayBuffer)
   
   const { error: uploadError } = await supabaseAdmin.storage
-    .from('kmtams-documents')
+    .from('kmtams-assets')
     .upload(filePath, buffer, {
       contentType: file.type,
       upsert: true
@@ -18,7 +18,7 @@ export async function uploadAsset(file: File, name: string, assetType: string, u
   if (uploadError) throw uploadError
 
   const { data: publicUrlData } = supabaseAdmin.storage
-    .from('kmtams-documents')
+    .from('kmtams-assets')
     .getPublicUrl(filePath)
 
   const { data: asset, error: assetError } = await supabaseAdmin
@@ -67,7 +67,7 @@ export async function deleteAsset(id: string) {
 
   if (asset?.file_path) {
     const { error: storageError } = await supabaseAdmin.storage
-      .from('kmtams-documents')
+      .from('kmtams-assets')
       .remove([asset.file_path])
       
     // Ignore storage errors if file not found

@@ -143,4 +143,52 @@ export const templates = {
       </div>
     `,
   }),
+
+  multiDayAttendanceReminder: (
+    participantName: string,
+    meetingTitle: string,
+    dayLabel: string,
+    dateStr: string,
+    pin: string,
+    attendanceUrl: string,
+    venue?: string
+  ) => ({
+    subject: `Attendance Reminder: ${meetingTitle} — ${dayLabel} (${dateStr})`,
+    html: `
+      <div style="font-family: Arial, 'Helvetica Neue', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f8fafc;">
+        <div style="background: #1e3a8a; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">Kenya National Highways Authority</h1>
+          <p style="color: #fde047; margin: 6px 0 0; font-size: 13px; font-weight: bold;">KeNHA Meeting &amp; Training Attendance System (KMTAMS)</p>
+        </div>
+        <div style="background: #ffffff; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #0f172a; font-size: 18px; margin-top: 0;">Daily Attendance Sign-In Reminder</h2>
+          <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Dear <strong>${participantName || 'Participant'}</strong>,<br/>
+            This is a reminder to sign your daily attendance for <strong>${meetingTitle}</strong> for <strong>${dayLabel} (${dateStr})</strong>.
+          </p>
+          <div style="background: #f1f5f9; border-left: 4px solid #2563eb; padding: 16px; border-radius: 6px; margin: 20px 0;">
+            <p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Meeting:</strong> ${meetingTitle}</p>
+            <p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Session Day:</strong> ${dayLabel} &mdash; ${dateStr}</p>
+            ${venue ? `<p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Venue:</strong> ${venue}</p>` : ''}
+            <p style="margin: 8px 0 4px; font-size: 14px; color: #1e293b;">
+              <strong>Meeting 6-Digit PIN:</strong> 
+              <span style="display: inline-block; background: #e0e7ff; color: #1e40af; font-weight: 800; font-size: 16px; padding: 2px 8px; border-radius: 4px; letter-spacing: 2px; margin-left: 6px;">${pin}</span>
+            </p>
+          </div>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${attendanceUrl}" style="display: inline-block; background: #2563eb; color: #ffffff; font-weight: 700; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-size: 14px; box-shadow: 0 2px 4px rgba(37,99,235,0.3);">
+              Sign Today's Attendance Register &rarr;
+            </a>
+          </div>
+          <p style="font-size: 12px; color: #64748b; line-height: 1.4; text-align: center;">
+            You can also open the link on your mobile phone or tablet to provide your digital signature.
+          </p>
+          <hr style="margin: 24px 0 16px; border: none; border-top: 1px solid #e2e8f0;">
+          <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
+            Kenya National Highways Authority &copy; ${new Date().getFullYear()} &bull; Quality Highways, Better Connections
+          </p>
+        </div>
+      </div>
+    `,
+  }),
 }

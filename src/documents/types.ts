@@ -54,4 +54,5 @@ export interface RenderOptions {
   version?: number
   documentNumber?: string
   userId: string
+  scope?: 'all' | 'staff' | 'visitors'
 }

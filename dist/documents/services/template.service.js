@@ -20,9 +20,9 @@ export async function uploadTemplate(file, name, description, category, userId) 
         .single();
     if (templateError)
         throw templateError;
-    const filePath = `templates/${template.id}/v1.docx`;
+    const filePath = `templates/${template.template_id}/v1.docx`;
     const { error: uploadError } = await supabaseAdmin.storage
-        .from('kmtams-documents')
+        .from('kmtams-assets')
         .upload(filePath, buffer, {
         contentType: file.type,
         upsert: true
@@ -32,12 +32,12 @@ export async function uploadTemplate(file, name, description, category, userId) 
     const { error: versionError } = await supabaseAdmin
         .from('template_versions')
         .insert({
-        template_id: template.id,
+        template_id: template.template_id,
         version_number: 1,
         file_path: filePath,
         created_by: userId,
         changelog: 'Initial version',
-        meta: meta
+        metadata: meta
     });
     if (versionError)
         throw versionError;
@@ -60,7 +60,7 @@ export async function getTemplate(id) {
       *,
       template_versions (*)
     `)
-        .eq('id', id)
+        .eq('template_id', id)
         .single();
     if (error)
         throw error;
@@ -70,7 +70,7 @@ export async function updateTemplate(id, updates) {
     const { data, error } = await supabaseAdmin
         .from('document_templates')
         .update(updates)
-        .eq('id', id)
+        .eq('template_id', id)
         .select('*')
         .single();
     if (error)
@@ -96,7 +96,7 @@ export async function uploadNewVersion(templateId, file, changelog, userId) {
     const nextVersion = (versions && versions.length > 0) ? versions[0].version_number + 1 : 1;
     const filePath = `templates/${templateId}/v${nextVersion}.docx`;
     const { error: uploadError } = await supabaseAdmin.storage
-        .from('kmtams-documents')
+        .from('kmtams-assets')
         .upload(filePath, buffer, {
         contentType: file.type,
         upsert: true
@@ -111,7 +111,7 @@ export async function uploadNewVersion(templateId, file, changelog, userId) {
         file_path: filePath,
         created_by: userId,
         changelog,
-        meta: meta
+        metadata: meta
     })
         .select('*')
         .single();
@@ -123,7 +123,7 @@ export async function deleteTemplate(id) {
     const { error } = await supabaseAdmin
         .from('document_templates')
         .update({ is_active: false })
-        .eq('id', id);
+        .eq('template_id', id);
     if (error)
         throw error;
 }
@@ -146,7 +146,7 @@ export async function getTemplateFile(templateId, version) {
         filePath = `templates/${templateId}/v${versions[0].version_number}.docx`;
     }
     const { data } = supabaseAdmin.storage
-        .from('kmtams-documents')
+        .from('kmtams-assets')
         .getPublicUrl(filePath);
     return data.publicUrl;
 }
@@ -155,7 +155,7 @@ export async function setDefaultTemplate(templateId) {
     const { data: template, error: templateError } = await supabaseAdmin
         .from('document_templates')
         .select('category')
-        .eq('id', templateId)
+        .eq('template_id', templateId)
         .single();
     if (templateError)
         throw templateError;
@@ -168,7 +168,7 @@ export async function setDefaultTemplate(templateId) {
     const { data, error } = await supabaseAdmin
         .from('document_templates')
         .update({ is_default: true })
-        .eq('id', templateId)
+        .eq('template_id', templateId)
         .select('*')
         .single();
     if (error)

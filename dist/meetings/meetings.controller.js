@@ -1,6 +1,6 @@
 import * as MeetingsService from './meetings.service.js';
 import { ok, created, badRequest, notFound, serverError, paginated, } from '../utils/response.js';
-import { CreateMeetingSchema, UpdateMeetingSchema, PaginationSchema } from '../utils/validators.js';
+import { CreateMeetingSchema, UpdateMeetingSchema, PaginationSchema, ExtendAttendanceSchema } from '../utils/validators.js';
 import { writeAuditLog } from '../middleware/audit.middleware.js';
 // GET /api/meetings
 export const list = async (c) => {
@@ -47,10 +47,12 @@ export const getLive = async (c) => {
 export const create = async (c) => {
     try {
         const user = c.get('user');
-        const body = await c.req.json();
+        const body = await c.req.json().catch(() => ({}));
         const parsed = CreateMeetingSchema.safeParse(body);
-        if (!parsed.success)
+        if (!parsed.success) {
+            console.error('[CreateMeeting Validation Error]', parsed.error.issues);
             return badRequest(c, parsed.error.issues[0].message);
+        }
         const meeting = await MeetingsService.createMeeting(parsed.data, user.id);
         const ip = c.req.header('x-forwarded-for') ?? undefined;
         writeAuditLog(user.id, 'meeting_created', `Meeting created: ${meeting.title}`, ip);
@@ -58,6 +60,7 @@ export const create = async (c) => {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create meeting';
+        console.error('[CreateMeeting Error]', err);
         return badRequest(c, message);
     }
 };
@@ -79,33 +82,63 @@ export const update = async (c) => {
         return badRequest(c, message);
     }
 };
-// POST /api/meetings/sessions/:sessionId/open-attendance
-export const openSessionAttendance = async (c) => {
+// POST /api/meetings/:id/open-attendance
+export const openAttendance = async (c) => {
     try {
         const user = c.get('user');
-        const sessionId = c.req.param('sessionId') || '';
-        await MeetingsService.openSessionAttendance(sessionId, user.id, user.role);
+        await MeetingsService.openAttendance(c.req.param('id') || '', user.id, user.role);
         const ip = c.req.header('x-forwarded-for') ?? undefined;
-        writeAuditLog(user.id, 'attendance_opened', `Opened attendance for session: ${sessionId}`, ip);
-        return ok(c, { message: 'Session attendance is now OPEN' });
+        writeAuditLog(user.id, 'attendance_opened', `Opened attendance for meeting: ${c.req.param('id') || ''}`, ip);
+        return ok(c, { message: 'Attendance is now OPEN' });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to open session attendance';
+        const message = err instanceof Error ? err.message : 'Failed to open attendance';
         return badRequest(c, message);
     }
 };
-// POST /api/meetings/sessions/:sessionId/close-attendance
-export const closeSessionAttendance = async (c) => {
+// POST /api/meetings/:id/extend-attendance
+export const extendAttendance = async (c) => {
     try {
         const user = c.get('user');
-        const sessionId = c.req.param('sessionId') || '';
-        await MeetingsService.closeSessionAttendance(sessionId, user.id, user.role);
+        const body = await c.req.json().catch(() => ({}));
+        const parsed = ExtendAttendanceSchema.safeParse(body);
+        const minutes = parsed.success ? parsed.data.minutes : 30;
+        const meeting = await MeetingsService.extendAttendance(c.req.param('id') || '', minutes, user.id, user.role);
         const ip = c.req.header('x-forwarded-for') ?? undefined;
-        writeAuditLog(user.id, 'attendance_closed', `Closed attendance for session: ${sessionId}`, ip);
-        return ok(c, { message: 'Session attendance is now CLOSED' });
+        writeAuditLog(user.id, 'attendance_opened', `Extended attendance by ${minutes} mins for meeting: ${c.req.param('id') || ''}`, ip);
+        return ok(c, { message: `Attendance extended by ${minutes} minutes and is now OPEN`, meeting });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to close session attendance';
+        const message = err instanceof Error ? err.message : 'Failed to extend attendance';
+        return badRequest(c, message);
+    }
+};
+// POST /api/meetings/:id/close-attendance
+export const closeAttendance = async (c) => {
+    try {
+        const user = c.get('user');
+        await MeetingsService.closeAttendance(c.req.param('id') || '', user.id, user.role);
+        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        writeAuditLog(user.id, 'attendance_closed', `Closed attendance for meeting: ${c.req.param('id') || ''}`, ip);
+        return ok(c, { message: 'Attendance is now CLOSED' });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to close attendance';
+        return badRequest(c, message);
+    }
+};
+// POST /api/meetings/:id/send-reminders
+export const sendReminders = async (c) => {
+    try {
+        const user = c.get('user');
+        const body = await c.req.json().catch(() => ({}));
+        const result = await MeetingsService.sendMeetingReminders(c.req.param('id') || '', body, user.id, user.role);
+        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        writeAuditLog(user.id, 'attendance_reminders_sent', `Sent ${result.sentCount} attendance reminder emails for meeting: ${c.req.param('id') || ''}`, ip);
+        return ok(c, { message: `Successfully sent ${result.sentCount} reminder email(s) via Resend`, result });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to send reminders';
         return badRequest(c, message);
     }
 };

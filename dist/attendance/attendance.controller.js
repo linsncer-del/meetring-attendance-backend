@@ -1,7 +1,22 @@
 import * as AttendanceService from './attendance.service.js';
 import { ok, badRequest, notFound, serverError } from '../utils/response.js';
-import { SubmitAttendanceSchema } from '../utils/validators.js';
+import { SubmitAttendanceSchema, ValidatePinSchema } from '../utils/validators.js';
 import { writeAuditLog } from '../middleware/audit.middleware.js';
+// POST /api/attendance/validate-pin (PUBLIC — verify PIN and open status before form)
+export const validatePin = async (c) => {
+    try {
+        const body = await c.req.json();
+        const parsed = ValidatePinSchema.safeParse(body);
+        if (!parsed.success)
+            return badRequest(c, parsed.error.issues[0].message);
+        const result = await AttendanceService.validateMeetingPin(parsed.data.meeting_id, parsed.data.meeting_pin);
+        return ok(c, result);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'PIN verification failed';
+        return badRequest(c, message);
+    }
+};
 // GET /api/attendance/meeting-info/:meetingId  (PUBLIC — for the attendance form page)
 export const getMeetingInfo = async (c) => {
     try {

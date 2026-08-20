@@ -45,6 +45,7 @@ export type AuditAction =
   | 'template_uploaded'
   | 'template_updated'
   | 'document_generated'
+  | 'attendance_reminders_sent'
   | 'asset_uploaded'
   | 'other'
 

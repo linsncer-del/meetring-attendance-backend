@@ -1,8 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '../config/supabase.js';
 import { generateUniquePinForDate } from '../utils/pin.js';
 import { buildAttendanceUrl, generateQRCodeBase64 } from '../utils/qrcode.js';
 import { sendMail, templates } from '../config/mailer.js';
-// ── List meetings ─────────────────────────────────────────────────────
 // ── List meetings ─────────────────────────────────────────────────────
 export const listMeetings = async (userId, role, page = 1, limit = 20, filters) => {
     const from = (page - 1) * limit;
@@ -11,14 +11,15 @@ export const listMeetings = async (userId, role, page = 1, limit = 20, filters) 
         .from('meetings')
         .select(`*, 
        profiles!meetings_created_by_fkey(full_name, email),
-       departments(name, department_code),
-       meeting_sessions(*)`, { count: 'exact' })
-        .order('start_date', { ascending: false })
+       departments(name, department_code)`, { count: 'exact' })
+        .order('meeting_date', { ascending: false })
         .range(from, to);
     // Meeting creators only see their own meetings; HR and admins see all
     if (role === 'meeting_creator') {
         query = query.eq('created_by', userId);
     }
+    if (filters?.status)
+        query = query.eq('attendance_status', filters.status);
     if (filters?.meetingType)
         query = query.eq('meeting_type', filters.meetingType);
     if (filters?.departmentId)
@@ -37,17 +38,12 @@ export const getMeetingById = async (meetingId) => {
         .select(`
       *,
       profiles!meetings_created_by_fkey(full_name, email),
-      departments(name, department_code),
-      meeting_sessions(*)
+      departments(name, department_code)
     `)
         .eq('meeting_id', meetingId)
         .single();
     if (error || !data)
         throw new Error('Meeting not found');
-    // Sort sessions by session_number
-    if (data.meeting_sessions && Array.isArray(data.meeting_sessions)) {
-        data.sessions = data.meeting_sessions.sort((a, b) => a.session_number - b.session_number);
-    }
     return data;
 };
 // ── Get live attendance summary ───────────────────────────────────────
@@ -55,115 +51,107 @@ export const getMeetingLiveSummary = async (meetingId) => {
     const { data, error } = await supabaseAdmin
         .from('vw_meeting_attendance_summary')
         .select('*')
-        .eq('meeting_id', meetingId);
+        .eq('meeting_id', meetingId)
+        .single();
     if (error || !data)
         throw new Error('Meeting not found');
     return data;
 };
 // ── Create meeting ────────────────────────────────────────────────────
 export const createMeeting = async (input, createdBy) => {
-    // Determine sessions: use input.sessions array or fallback to single session from legacy fields
-    let sessionsToCreate = input.sessions || [];
-    if (sessionsToCreate.length === 0 && input.meeting_date) {
-        sessionsToCreate = [{
-                session_date: input.meeting_date,
-                session_number: 1,
-                start_time: input.start_time || '09:00',
-                end_time: input.end_time || '17:00',
-                attendance_open_time: input.attendance_open_time || new Date().toISOString(),
-                attendance_close_time: input.attendance_close_time || new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
-            }];
+    const trimmedTitle = input.title.trim();
+    // 1. Check title uniqueness on the same date to prevent duplicates
+    const { data: duplicate } = await supabaseAdmin
+        .from('meetings')
+        .select('meeting_id, title')
+        .ilike('title', trimmedTitle)
+        .eq('meeting_date', input.meeting_date)
+        .maybeSingle();
+    if (duplicate) {
+        throw new Error(`A meeting with the title "${trimmedTitle}" already exists on ${input.meeting_date}. Please use a unique title.`);
     }
-    if (sessionsToCreate.length === 0) {
-        throw new Error('At least one session is required to create a meeting');
-    }
-    // Calculate start_date & end_date
-    const sortedDates = sessionsToCreate.map(s => s.session_date).sort();
-    const startDate = input.start_date || sortedDates[0];
-    const endDate = input.end_date || sortedDates[sortedDates.length - 1];
-    // Generate or validate PIN
+    // 2. Generate or validate PIN
     let pin;
     if (input.meeting_pin && input.meeting_pin.trim() !== '') {
-        const { data: existing } = await supabaseAdmin
+        const customPin = input.meeting_pin.trim();
+        const { data: existingPin } = await supabaseAdmin
             .from('meetings')
             .select('meeting_id')
-            .eq('meeting_pin', input.meeting_pin)
-            .eq('start_date', startDate)
+            .eq('meeting_pin', customPin)
+            .eq('meeting_date', input.meeting_date)
             .maybeSingle();
-        if (existing)
-            throw new Error('This PIN is already in use for another meeting starting on this date');
-        pin = input.meeting_pin;
+        if (existingPin)
+            throw new Error(`The PIN ${customPin} is already in use for another meeting on this date`);
+        pin = customPin;
     }
     else {
-        pin = await generateUniquePinForDate(startDate);
+        pin = await generateUniquePinForDate(input.meeting_date);
     }
-    // Insert meeting row
+    // 3. Pre-generate meeting ID and URLs before insertion (Atomic)
+    const meetingId = randomUUID();
+    const attendanceUrl = buildAttendanceUrl(meetingId);
+    let qrCodeUrl = null;
+    try {
+        const qrCodeBase64 = await generateQRCodeBase64(attendanceUrl);
+        const qrPath = `qrcodes/${meetingId}.png`;
+        const qrBuffer = Buffer.from(qrCodeBase64.replace(/^data:image\/png;base64,/, ''), 'base64');
+        const { error: storageError } = await supabaseAdmin.storage
+            .from('kmtams-assets')
+            .upload(qrPath, qrBuffer, { contentType: 'image/png', upsert: true });
+        if (!storageError) {
+            const { data: publicUrl } = supabaseAdmin.storage
+                .from('kmtams-assets')
+                .getPublicUrl(qrPath);
+            qrCodeUrl = publicUrl.publicUrl;
+        }
+        else {
+            console.warn('[CreateMeeting] QR Storage upload notice:', storageError.message);
+        }
+    }
+    catch (qrErr) {
+        console.warn('[CreateMeeting] QR generation notice:', qrErr);
+    }
+    const deptId = (input.department_id && input.department_id.trim() !== '' && input.department_id !== 'undefined' && input.department_id !== 'null')
+        ? input.department_id.trim()
+        : null;
+    const venue = (input.venue && input.venue.trim() !== '') ? input.venue.trim() : null;
+    const virtualLink = (input.virtual_link && input.virtual_link.trim() !== '') ? input.virtual_link.trim() : null;
+    const description = (input.description && input.description.trim() !== '') ? input.description.trim() : null;
+    // 4. Single atomic insertion with all fields — no separate update step
     const { data: meeting, error } = await supabaseAdmin
         .from('meetings')
         .insert({
-        title: input.title,
-        description: input.description || null,
+        meeting_id: meetingId,
+        title: trimmedTitle,
+        description,
         meeting_type: input.meeting_type,
-        venue: input.venue || null,
-        virtual_link: input.virtual_link || null,
-        start_date: startDate,
-        end_date: endDate,
-        department_id: input.department_id || null,
+        venue,
+        virtual_link: virtualLink,
+        meeting_date: input.meeting_date,
+        start_time: input.start_time,
+        end_time: input.end_time,
+        attendance_open_time: input.attendance_open_time,
+        attendance_close_time: input.attendance_close_time,
+        department_id: deptId,
         created_by: createdBy,
         meeting_pin: pin,
+        attendance_url: attendanceUrl,
+        qr_code_url: qrCodeUrl,
     })
         .select()
         .single();
-    if (error)
+    if (error) {
+        console.error('[CreateMeeting Insert Error]', error);
         throw new Error(error.message);
-    // Insert sessions
-    const sessionRows = sessionsToCreate.map((s, idx) => ({
-        meeting_id: meeting.meeting_id,
-        session_date: s.session_date,
-        session_number: s.session_number || (idx + 1),
-        start_time: s.start_time,
-        end_time: s.end_time,
-        attendance_open_time: s.attendance_open_time,
-        attendance_close_time: s.attendance_close_time,
-        attendance_status: 'not_started',
-    }));
-    const { data: createdSessions, error: sessionErr } = await supabaseAdmin
-        .from('meeting_sessions')
-        .insert(sessionRows)
-        .select();
-    if (sessionErr)
-        throw new Error(`Failed to create meeting sessions: ${sessionErr.message}`);
-    // Generate QR code URL and attendance URL
-    const attendanceUrl = buildAttendanceUrl(meeting.meeting_id);
-    const qrCodeBase64 = await generateQRCodeBase64(attendanceUrl);
-    // Store QR in Supabase Storage
-    const qrPath = `qrcodes/${meeting.meeting_id}.png`;
-    const qrBuffer = Buffer.from(qrCodeBase64.replace(/^data:image\/png;base64,/, ''), 'base64');
-    const { error: storageError } = await supabaseAdmin.storage
-        .from('kmtams-assets')
-        .upload(qrPath, qrBuffer, { contentType: 'image/png', upsert: true });
-    let qrCodeUrl = qrCodeBase64;
-    if (!storageError) {
-        const { data: publicUrl } = supabaseAdmin.storage
-            .from('kmtams-assets')
-            .getPublicUrl(qrPath);
-        qrCodeUrl = publicUrl.publicUrl;
     }
-    const { data: updated, error: updateError } = await supabaseAdmin
-        .from('meetings')
-        .update({ qr_code_url: qrCodeUrl, attendance_url: attendanceUrl })
-        .eq('meeting_id', meeting.meeting_id)
-        .select()
-        .single();
-    if (updateError)
-        throw new Error(updateError.message);
-    return { ...updated, sessions: createdSessions };
+    return meeting;
 };
 // ── Update meeting ────────────────────────────────────────────────────
 export const updateMeeting = async (meetingId, input, requesterId, requesterRole) => {
+    // Ownership check
     const { data: existing, error: fetchErr } = await supabaseAdmin
         .from('meetings')
-        .select('created_by')
+        .select('created_by, attendance_status, title, meeting_date')
         .eq('meeting_id', meetingId)
         .single();
     if (fetchErr || !existing)
@@ -171,8 +159,30 @@ export const updateMeeting = async (meetingId, input, requesterId, requesterRole
     if (requesterRole !== 'ict_admin' && existing.created_by !== requesterId) {
         throw new Error('You can only update meetings you created');
     }
+    if (existing.attendance_status !== 'not_started') {
+        throw new Error('Cannot update a meeting after attendance has been opened');
+    }
+    // Check title uniqueness on updated date/title
+    if (input.title || input.meeting_date) {
+        const checkTitle = (input.title ?? existing.title).trim();
+        const checkDate = input.meeting_date ?? existing.meeting_date;
+        const { data: duplicate } = await supabaseAdmin
+            .from('meetings')
+            .select('meeting_id')
+            .ilike('title', checkTitle)
+            .eq('meeting_date', checkDate)
+            .neq('meeting_id', meetingId)
+            .maybeSingle();
+        if (duplicate) {
+            throw new Error(`Another meeting with the title "${checkTitle}" already exists on ${checkDate}`);
+        }
+    }
     const updates = { updated_at: new Date().toISOString() };
-    const fields = ['title', 'description', 'meeting_type', 'venue', 'virtual_link', 'start_date', 'end_date', 'department_id'];
+    const fields = [
+        'title', 'description', 'meeting_type', 'venue', 'virtual_link',
+        'meeting_date', 'start_time', 'end_time', 'attendance_open_time',
+        'attendance_close_time', 'department_id',
+    ];
     for (const f of fields) {
         if (input[f] !== undefined)
             updates[f] = input[f];
@@ -187,86 +197,166 @@ export const updateMeeting = async (meetingId, input, requesterId, requesterRole
         throw new Error(error?.message ?? 'Update failed');
     return data;
 };
-// ── Open Session Attendance ───────────────────────────────────────────
-export const openSessionAttendance = async (sessionId, requesterId, requesterRole) => {
-    const { data: session, error } = await supabaseAdmin
-        .from('meeting_sessions')
-        .select('*, meetings(title, created_by)')
-        .eq('session_id', sessionId)
+// ── Open attendance (supports opening outside preset time / reopening) ─
+export const openAttendance = async (meetingId, requesterId, requesterRole) => {
+    const { data: meeting, error } = await supabaseAdmin
+        .from('meetings')
+        .select('created_by, attendance_status, title, attendance_open_time, attendance_close_time')
+        .eq('meeting_id', meetingId)
         .single();
-    if (error || !session)
-        throw new Error('Session not found');
-    const meeting = session.meetings;
-    if (requesterRole !== 'ict_admin' && meeting?.created_by !== requesterId) {
+    if (error || !meeting)
+        throw new Error('Meeting not found');
+    if (requesterRole !== 'ict_admin' && meeting.created_by !== requesterId) {
         throw new Error('Only the meeting organizer or ICT Admin can open attendance');
     }
-    if (session.attendance_status === 'open')
-        throw new Error('Attendance for this session is already open');
-    const { error: updateErr } = await supabaseAdmin
-        .from('meeting_sessions')
-        .update({ attendance_status: 'open', updated_at: new Date().toISOString() })
-        .eq('session_id', sessionId);
-    if (updateErr)
-        throw new Error(updateErr.message);
-    // Notify organizer by email
-    if (meeting?.created_by) {
-        const { data: organizer } = await supabaseAdmin
-            .from('profiles')
-            .select('email, full_name')
-            .eq('id', meeting.created_by)
-            .single();
-        if (organizer) {
-            const tpl = templates.attendanceOpened(organizer.full_name, `${meeting.title} (Session ${session.session_number} - ${session.session_date})`);
-            sendMail({ to: organizer.email, subject: tpl.subject, html: tpl.html }).catch(() => { });
+    if (meeting.attendance_status === 'open')
+        throw new Error('Attendance is already open');
+    const now = new Date();
+    const currentClose = new Date(meeting.attendance_close_time);
+    const currentOpen = new Date(meeting.attendance_open_time);
+    // If opening outside preset time, adjust open and close times so attendance is immediately valid
+    let newOpenTime = meeting.attendance_open_time;
+    let newCloseTime = meeting.attendance_close_time;
+    if (now < currentOpen || now >= currentClose) {
+        newOpenTime = now.toISOString();
+        // If current close time has passed or is now, extend by 2 hours
+        if (now >= currentClose) {
+            newCloseTime = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
         }
     }
-};
-// ── Close Session Attendance ──────────────────────────────────────────
-export const closeSessionAttendance = async (sessionId, requesterId, requesterRole) => {
-    const { data: session, error } = await supabaseAdmin
-        .from('meeting_sessions')
-        .select('*, meetings(title, created_by)')
-        .eq('session_id', sessionId)
+    const { error: updateErr } = await supabaseAdmin
+        .from('meetings')
+        .update({
+        attendance_status: 'open',
+        attendance_open_time: newOpenTime,
+        attendance_close_time: newCloseTime,
+        updated_at: now.toISOString(),
+    })
+        .eq('meeting_id', meetingId);
+    if (updateErr)
+        throw new Error(updateErr.message);
+    // Notify organizer by email (fire-and-forget)
+    const { data: organizer } = await supabaseAdmin
+        .from('profiles')
+        .select('email, full_name')
+        .eq('id', meeting.created_by)
         .single();
-    if (error || !session)
-        throw new Error('Session not found');
-    const meeting = session.meetings;
-    if (requesterRole !== 'ict_admin' && meeting?.created_by !== requesterId) {
+    if (organizer) {
+        const tpl = templates.attendanceOpened(organizer.full_name, meeting.title);
+        sendMail({ to: organizer.email, subject: tpl.subject, html: tpl.html }).catch(() => { });
+    }
+};
+// ── Extend attendance ─────────────────────────────────────────────────
+export const extendAttendance = async (meetingId, minutes, requesterId, requesterRole) => {
+    const { data: meeting, error } = await supabaseAdmin
+        .from('meetings')
+        .select('created_by, attendance_status, attendance_close_time, title')
+        .eq('meeting_id', meetingId)
+        .single();
+    if (error || !meeting)
+        throw new Error('Meeting not found');
+    if (requesterRole !== 'ict_admin' && meeting.created_by !== requesterId) {
+        throw new Error('Only the meeting organizer or ICT Admin can extend attendance');
+    }
+    const now = new Date();
+    const currentClose = new Date(meeting.attendance_close_time);
+    const baseTime = currentClose > now ? currentClose : now;
+    const newCloseTime = new Date(baseTime.getTime() + minutes * 60 * 1000).toISOString();
+    const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('meetings')
+        .update({
+        attendance_status: 'open', // Re-open or keep open
+        attendance_close_time: newCloseTime,
+        updated_at: now.toISOString(),
+    })
+        .eq('meeting_id', meetingId)
+        .select()
+        .single();
+    if (updateErr)
+        throw new Error(updateErr.message);
+    return updated;
+};
+// ── Close attendance ──────────────────────────────────────────────────
+export const closeAttendance = async (meetingId, requesterId, requesterRole) => {
+    const { data: meeting, error } = await supabaseAdmin
+        .from('meetings')
+        .select('created_by, attendance_status, title')
+        .eq('meeting_id', meetingId)
+        .single();
+    if (error || !meeting)
+        throw new Error('Meeting not found');
+    if (requesterRole !== 'ict_admin' && meeting.created_by !== requesterId) {
         throw new Error('Only the meeting organizer or ICT Admin can close attendance');
     }
-    if (session.attendance_status !== 'open')
-        throw new Error('Attendance for this session is not open');
+    if (meeting.attendance_status !== 'open')
+        throw new Error('Attendance is not currently open');
     const { error: updateErr } = await supabaseAdmin
-        .from('meeting_sessions')
+        .from('meetings')
         .update({ attendance_status: 'closed', updated_at: new Date().toISOString() })
-        .eq('session_id', sessionId);
+        .eq('meeting_id', meetingId);
     if (updateErr)
         throw new Error(updateErr.message);
-};
-// ── Open Legacy Meeting Attendance (Opens first session) ──────────────
-export const openAttendance = async (meetingId, requesterId, requesterRole) => {
-    const { data: sessions } = await supabaseAdmin
-        .from('meeting_sessions')
-        .select('session_id')
+    // Get total count for email
+    const { data: summary } = await supabaseAdmin
+        .from('vw_meeting_attendance_summary')
+        .select('total_attendance')
         .eq('meeting_id', meetingId)
-        .order('session_number', { ascending: true });
-    if (sessions && sessions.length > 0) {
-        await openSessionAttendance(sessions[0].session_id, requesterId, requesterRole);
-    }
-    else {
-        throw new Error('No sessions found for this meeting');
+        .single();
+    // Notify organizer (fire-and-forget)
+    const { data: organizer } = await supabaseAdmin
+        .from('profiles')
+        .select('email, full_name')
+        .eq('id', meeting.created_by)
+        .single();
+    if (organizer) {
+        const tpl = templates.attendanceClosed(organizer.full_name, meeting.title, summary?.total_attendance ?? 0);
+        sendMail({ to: organizer.email, subject: tpl.subject, html: tpl.html }).catch(() => { });
     }
 };
-// ── Close Legacy Meeting Attendance ────────────────────────────────────
-export const closeAttendance = async (meetingId, requesterId, requesterRole) => {
-    const { data: sessions } = await supabaseAdmin
-        .from('meeting_sessions')
-        .select('session_id')
+// ── Send Multi-Day / Daily Attendance Reminders via Resend ─────────────
+export const sendMeetingReminders = async (meetingId, options, requesterId, requesterRole) => {
+    const { data: meeting, error } = await supabaseAdmin
+        .from('meetings')
+        .select('*, profiles:created_by(email, full_name)')
         .eq('meeting_id', meetingId)
-        .eq('attendance_status', 'open');
-    if (sessions && sessions.length > 0) {
-        for (const s of sessions) {
-            await closeSessionAttendance(s.session_id, requesterId, requesterRole);
+        .single();
+    if (error || !meeting)
+        throw new Error('Meeting not found');
+    if (requesterRole !== 'ict_admin' && meeting.created_by !== requesterId) {
+        throw new Error('Only the meeting organizer or ICT Admin can send reminders');
+    }
+    // Get recipient emails from parameters or registered staff
+    let recipientList = [];
+    if (options.emails && options.emails.length > 0) {
+        recipientList = options.emails.map(e => e.trim().toLowerCase()).filter(Boolean);
+    }
+    if (recipientList.length === 0) {
+        const { data: staffProfiles } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .eq('is_active', true)
+            .limit(100);
+        if (staffProfiles) {
+            recipientList = staffProfiles.map(p => p.email).filter(Boolean);
         }
     }
+    if (recipientList.length === 0) {
+        throw new Error('No recipient email addresses found to send reminders to.');
+    }
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const attendanceUrl = `${frontendUrl}/attend?pin=${meeting.pin}&meetingId=${meeting.meeting_id}`;
+    const dayLabel = options.dayLabel || 'Session';
+    const dateStr = options.dateStr || meeting.meeting_date;
+    let sentCount = 0;
+    for (const email of recipientList) {
+        try {
+            const tpl = templates.multiDayAttendanceReminder(email.split('@')[0], meeting.title, dayLabel, dateStr, meeting.pin, attendanceUrl, meeting.venue);
+            await sendMail({ to: email, subject: tpl.subject, html: tpl.html });
+            sentCount++;
+        }
+        catch (mailErr) {
+            console.warn(`[Reminder Send Failed for ${email}]:`, mailErr);
+        }
+    }
+    return { success: true, sentCount, totalRecipients: recipientList.length };
 };

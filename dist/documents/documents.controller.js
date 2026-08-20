@@ -29,7 +29,7 @@ export const getTemplate = async (c) => {
 export const uploadTemplate = async (c) => {
     try {
         const user = c.get('user');
-        const body = await c.req.parseBody();
+        const body = await c.req.parseBody({ all: true });
         const file = body['file'];
         const name = body['name'];
         const description = body['description'];
@@ -75,7 +75,7 @@ export const uploadNewVersion = async (c) => {
     try {
         const user = c.get('user');
         const id = c.req.param('id') || '';
-        const body = await c.req.parseBody();
+        const body = await c.req.parseBody({ all: true });
         const file = body['file'];
         const changelog = body['changelog'] || 'New version uploaded';
         if (!file) {
@@ -131,7 +131,7 @@ export const listAssets = async (c) => {
 export const uploadAsset = async (c) => {
     try {
         const user = c.get('user');
-        const body = await c.req.parseBody();
+        const body = await c.req.parseBody({ all: true });
         const file = body['file'];
         const name = body['name'];
         const assetType = body['asset_type'];
@@ -201,7 +201,7 @@ export const renderDocument = async (c) => {
         if (!meetingId) {
             return badRequest(c, 'meetingId is required');
         }
-        const body = await c.req.json();
+        const body = await c.req.json().catch(() => ({}));
         const options = RenderDocumentSchema.parse(body);
         const result = await RendererService.renderDocument({
             templateId: options.template_id,
@@ -209,13 +209,15 @@ export const renderDocument = async (c) => {
             format: options.format,
             version: options.version,
             documentNumber: options.document_number,
-            userId: user.id
+            userId: user.id,
+            scope: options.scope
         });
         writeAuditLog(user.id, 'document_generated', `Document generated for meeting: ${meetingId}`, c.req.header('x-forwarded-for') ?? undefined);
         return created(c, result);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : 'Render failed';
+        console.error('[RenderDocument Error]', err);
         return badRequest(c, message);
     }
 };
@@ -243,12 +245,15 @@ export const downloadGeneratedDocument = async (c) => {
         const id = c.req.param('id') || '';
         const { data, error } = await supabaseAdmin
             .from('generated_documents')
-            .select('file_url')
-            .eq('id', id)
+            .select('file_path')
+            .eq('document_id', id)
             .single();
         if (error || !data)
             throw new Error('Not found');
-        return ok(c, { download_url: data.file_url });
+        const { data: publicUrlData } = supabaseAdmin.storage
+            .from('kmtams-assets')
+            .getPublicUrl(data.file_path);
+        return ok(c, { download_url: publicUrlData.publicUrl });
     }
     catch {
         return notFound(c);

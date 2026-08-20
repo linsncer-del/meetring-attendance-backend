@@ -3,7 +3,7 @@ import * as MeetingsService from './meetings.service.js'
 import {
   ok, created, badRequest, notFound, serverError, paginated,
 } from '../utils/response.js'
-import { CreateMeetingSchema, UpdateMeetingSchema, PaginationSchema } from '../utils/validators.js'
+import { CreateMeetingSchema, UpdateMeetingSchema, PaginationSchema, ExtendAttendanceSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
 import type { HonoVariables } from '../types/index.js'
 
@@ -52,17 +52,21 @@ export const getLive = async (c: Context<{ Variables: HonoVariables }>) => {
 export const create = async (c: Context<{ Variables: HonoVariables }>) => {
   try {
     const user = c.get('user')
-    const body = await c.req.json()
+    const body = await c.req.json().catch(() => ({}))
     const parsed = CreateMeetingSchema.safeParse(body)
-    if (!parsed.success) return badRequest(c, parsed.error.issues[0].message)
+    if (!parsed.success) {
+      console.error('[CreateMeeting Validation Error]', parsed.error.issues)
+      return badRequest(c, parsed.error.issues[0].message)
+    }
 
-    const meeting = await MeetingsService.createMeeting(parsed.data, user.id)
+    const meeting = await MeetingsService.createMeeting(parsed.data as any, user.id)
     const ip = c.req.header('x-forwarded-for') ?? undefined
     writeAuditLog(user.id, 'meeting_created', `Meeting created: ${meeting.title}`, ip)
 
     return created(c, meeting)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to create meeting'
+    console.error('[CreateMeeting Error]', err)
     return badRequest(c, message)
   }
 }
@@ -104,6 +108,31 @@ export const openAttendance = async (c: Context<{ Variables: HonoVariables }>) =
   }
 }
 
+// POST /api/meetings/:id/extend-attendance
+export const extendAttendance = async (c: Context<{ Variables: HonoVariables }>) => {
+  try {
+    const user = c.get('user')
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = ExtendAttendanceSchema.safeParse(body)
+    const minutes = parsed.success ? parsed.data.minutes : 30
+
+    const meeting = await MeetingsService.extendAttendance(
+      c.req.param('id') || '',
+      minutes,
+      user.id,
+      user.role
+    )
+
+    const ip = c.req.header('x-forwarded-for') ?? undefined
+    writeAuditLog(user.id, 'attendance_opened', `Extended attendance by ${minutes} mins for meeting: ${c.req.param('id') || ''}`, ip)
+
+    return ok(c, { message: `Attendance extended by ${minutes} minutes and is now OPEN`, meeting })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to extend attendance'
+    return badRequest(c, message)
+  }
+}
+
 // POST /api/meetings/:id/close-attendance
 export const closeAttendance = async (c: Context<{ Variables: HonoVariables }>) => {
   try {
@@ -116,6 +145,28 @@ export const closeAttendance = async (c: Context<{ Variables: HonoVariables }>) 
     return ok(c, { message: 'Attendance is now CLOSED' })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to close attendance'
+    return badRequest(c, message)
+  }
+}
+
+// POST /api/meetings/:id/send-reminders
+export const sendReminders = async (c: Context<{ Variables: HonoVariables }>) => {
+  try {
+    const user = c.get('user')
+    const body = await c.req.json().catch(() => ({}))
+    const result = await MeetingsService.sendMeetingReminders(
+      c.req.param('id') || '',
+      body,
+      user.id,
+      user.role
+    )
+
+    const ip = c.req.header('x-forwarded-for') ?? undefined
+    writeAuditLog(user.id, 'attendance_reminders_sent', `Sent ${result.sentCount} attendance reminder emails for meeting: ${c.req.param('id') || ''}`, ip)
+
+    return ok(c, { message: `Successfully sent ${result.sentCount} reminder email(s) via Resend`, result })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to send reminders'
     return badRequest(c, message)
   }
 }

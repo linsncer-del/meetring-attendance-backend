@@ -223,7 +223,7 @@ export const renderDocument = async (c: Context<{ Variables: HonoVariables }>) =
     if (!meetingId) {
       return badRequest(c, 'meetingId is required')
     }
-    const body = await c.req.json()
+    const body = await c.req.json().catch(() => ({}))
     const options = RenderDocumentSchema.parse(body)
     
     const result = await RendererService.renderDocument({
@@ -232,7 +232,8 @@ export const renderDocument = async (c: Context<{ Variables: HonoVariables }>) =
       format: options.format,
       version: options.version,
       documentNumber: options.document_number,
-      userId: user.id
+      userId: user.id,
+      scope: options.scope
     })
     
     writeAuditLog(user.id, 'document_generated', `Document generated for meeting: ${meetingId}`, c.req.header('x-forwarded-for') ?? undefined)
@@ -240,6 +241,7 @@ export const renderDocument = async (c: Context<{ Variables: HonoVariables }>) =
     return created(c, result)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Render failed'
+    console.error('[RenderDocument Error]', err)
     return badRequest(c, message)
   }
 }
@@ -270,13 +272,17 @@ export const downloadGeneratedDocument = async (c: Context<{ Variables: HonoVari
     const id = c.req.param('id') || ''
     const { data, error } = await supabaseAdmin
       .from('generated_documents')
-      .select('file_url')
-      .eq('id', id)
+      .select('file_path')
+      .eq('document_id', id)
       .single()
       
     if (error || !data) throw new Error('Not found')
     
-    return ok(c, { download_url: data.file_url })
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from('kmtams-assets')
+      .getPublicUrl(data.file_path)
+
+    return ok(c, { download_url: publicUrlData.publicUrl })
   } catch {
     return notFound(c)
   }

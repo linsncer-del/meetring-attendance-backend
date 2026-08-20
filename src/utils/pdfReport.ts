@@ -219,10 +219,12 @@ export const generatePdfFromHtml = async (html: string): Promise<Buffer> => {
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe',
     ]
     for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
+      if (p && fs.existsSync(p)) {
         executablePath = p
         break
       }
@@ -230,18 +232,18 @@ export const generatePdfFromHtml = async (html: string): Promise<Buffer> => {
   }
 
   const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
     executablePath: executablePath || undefined,
     headless: true,
   })
 
   try {
     const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' as any })
+    await page.setContent(html, { waitUntil: 'load', timeout: 15000 })
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
+      margin: { top: '12mm', bottom: '12mm', left: '10mm', right: '10mm' },
     })
     return Buffer.from(pdfBuffer)
   } finally {

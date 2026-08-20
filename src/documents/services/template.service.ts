@@ -28,7 +28,7 @@ export async function uploadTemplate(file: File, name: string, description: stri
   const filePath = `templates/${template.template_id}/v1.docx`
   
   const { error: uploadError } = await supabaseAdmin.storage
-    .from('kmtams-documents')
+    .from('kmtams-assets')
     .upload(filePath, buffer, {
       contentType: file.type,
       upsert: true
@@ -113,7 +113,7 @@ export async function uploadNewVersion(templateId: string, file: File, changelog
   const filePath = `templates/${templateId}/v${nextVersion}.docx`
   
   const { error: uploadError } = await supabaseAdmin.storage
-    .from('kmtams-documents')
+    .from('kmtams-assets')
     .upload(filePath, buffer, {
       contentType: file.type,
       upsert: true
@@ -170,7 +170,7 @@ export async function getTemplateFile(templateId: string, version?: number) {
   }
   
   const { data } = supabaseAdmin.storage
-    .from('kmtams-documents')
+    .from('kmtams-assets')
     .getPublicUrl(filePath)
     
   return data.publicUrl

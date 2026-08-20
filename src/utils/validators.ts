@@ -61,20 +61,25 @@ export const UpdateUserSchema = z.object({
 
 export const CreateMeetingSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200),
-  description: z.string().optional().nullable().or(z.literal('')),
+  description: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
   meeting_type: z.enum(['physical', 'virtual', 'hybrid']),
-  venue: z.string().max(255).optional().nullable().or(z.literal('')),
-  virtual_link: z.string().optional().nullable().or(z.literal('')),
+  venue: z.string().max(255).optional().nullable().or(z.literal('')).transform(v => v || null),
+  virtual_link: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
   meeting_date: z.string().min(1, 'Meeting date is required'),
   start_time: z.string().min(1, 'Start time is required'),
   end_time: z.string().min(1, 'End time is required'),
   attendance_open_time: z.string().min(1, 'Attendance open time is required'),
   attendance_close_time: z.string().min(1, 'Attendance close time is required'),
-  department_id: z.string().optional().nullable().or(z.literal('')),
-  meeting_pin: z.string().optional().nullable().or(z.literal('')),
+  department_id: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
+  meeting_pin: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
+  form_config: z.any().optional(),
 })
 
 export const UpdateMeetingSchema = CreateMeetingSchema.partial()
+
+export const ExtendAttendanceSchema = z.object({
+  minutes: z.number().int().min(1).max(1440).default(30),
+})
 
 // ── Attendance — Staff ────────────────────────────────────────────────
 
@@ -83,9 +88,10 @@ export const SubmitStaffAttendanceSchema = z.object({
   meeting_pin: z.string().min(1, 'PIN is required'),
   participant_type: z.literal('staff'),
   full_name: z.string().min(1).max(150),
-  designation: z.string().min(1).max(150),
-  department_id: z.string().uuid(),
+  designation: z.string().max(150).optional().default('Staff'),
+  department_id: z.string().uuid().optional().nullable(),
   signature_data: z.string().min(1, 'Digital signature is required'),
+  custom_responses: z.record(z.string(), z.any()).optional(),
 })
 
 // ── Attendance — Visitor ──────────────────────────────────────────────
@@ -95,16 +101,22 @@ export const SubmitVisitorAttendanceSchema = z.object({
   meeting_pin: z.string().min(1, 'PIN is required'),
   participant_type: z.literal('visitor'),
   full_name: z.string().min(1).max(150),
-  organization: z.string().min(1).max(200),
+  organization: z.string().max(200).optional().default('External / Visitor'),
   position_title: z.string().max(150).optional(),
-  purpose: z.enum(['guest', 'consultant', 'contractor', 'partner', 'trainer', 'auditor', 'other']),
+  purpose: z.enum(['guest', 'consultant', 'contractor', 'partner', 'trainer', 'auditor', 'other']).optional().default('guest'),
   signature_data: z.string().min(1, 'Digital signature is required'),
+  custom_responses: z.record(z.string(), z.any()).optional(),
 })
 
 export const SubmitAttendanceSchema = z.discriminatedUnion('participant_type', [
   SubmitStaffAttendanceSchema,
   SubmitVisitorAttendanceSchema,
 ])
+
+export const ValidatePinSchema = z.object({
+  meeting_id: z.string().uuid('Invalid meeting ID'),
+  meeting_pin: z.string().min(1, 'PIN is required'),
+})
 
 // ── Reports ───────────────────────────────────────────────────────────
 
@@ -128,10 +140,11 @@ export const UpdateTemplateSchema = z.object({
 })
 
 export const RenderDocumentSchema = z.object({
-  template_id: z.string().uuid().optional(),
+  template_id: z.string().uuid().optional().nullable().or(z.literal('')).transform(val => val || undefined),
   format: z.enum(['pdf', 'docx']).default('pdf'),
-  version: z.number().int().positive().optional(),
-  document_number: z.string().max(50).optional(),
+  version: z.number().int().positive().optional().nullable().transform(val => val ?? undefined),
+  document_number: z.string().max(50).optional().nullable().or(z.literal('')).transform(val => val || undefined),
+  scope: z.enum(['all', 'staff', 'visitors']).default('all').optional(),
 })
 
 export const UpdateOrganizationSchema = z.object({

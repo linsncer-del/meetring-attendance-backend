@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.middleware.js'
 import { requireRole } from '../middleware/role.middleware.js'
 import {
-  list, getOne, getLive, create, update, openAttendance, closeAttendance,
+  list, getOne, getLive, create, update, openAttendance, closeAttendance, extendAttendance, sendReminders,
 } from './meetings.controller.js'
 import type { HonoVariables } from '../types/index.js'
 
@@ -29,7 +29,7 @@ meetingsRouter.patch(
   update
 )
 
-// Open / Close attendance
+// Open / Close / Extend attendance
 meetingsRouter.post(
   '/:id/open-attendance',
   requireRole(['meeting_creator', 'ict_admin']),
@@ -37,9 +37,22 @@ meetingsRouter.post(
 )
 
 meetingsRouter.post(
+  '/:id/extend-attendance',
+  requireRole(['meeting_creator', 'ict_admin']),
+  extendAttendance
+)
+
+meetingsRouter.post(
   '/:id/close-attendance',
   requireRole(['meeting_creator', 'ict_admin']),
   closeAttendance
+)
+
+// Send daily / multi-day attendance reminders via Resend
+meetingsRouter.post(
+  '/:id/send-reminders',
+  requireRole(['meeting_creator', 'ict_admin']),
+  sendReminders
 )
 
 export default meetingsRouter

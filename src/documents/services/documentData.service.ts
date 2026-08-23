@@ -6,57 +6,49 @@ export async function getMeetingDocumentData(
   generatedBy: string,
   scope: 'all' | 'staff' | 'visitors' = 'all'
 ): Promise<DocumentData> {
-  // 1. Fetch meeting with department info
-  const { data: meeting, error: meetingError } = await supabaseAdmin
-    .from('meetings')
-    .select('*, departments(name, department_code)')
-    .eq('meeting_id', meetingId)
-    .single()
+  // Fetch the meeting (with department + organizer embedded in one query
+  // instead of a separate round-trip for the organizer profile), the
+  // staff/visitor attendance lists, and the org profile all concurrently
+  // — none of these four depend on each other's results, so there's no
+  // reason to wait on them one at a time.
+  const [meetingRes, staffRes, visitorRes, orgProfileRes] = await Promise.all([
+    supabaseAdmin
+      .from('meetings')
+      .select('*, departments(name, department_code), profiles!meetings_created_by_fkey(full_name, email)')
+      .eq('meeting_id', meetingId)
+      .single(),
+    supabaseAdmin
+      .from('attendance_staff')
+      .select('*, departments(name, department_code)')
+      .eq('meeting_id', meetingId)
+      .order('submitted_at', { ascending: true }),
+    supabaseAdmin
+      .from('attendance_visitor')
+      .select('*')
+      .eq('meeting_id', meetingId)
+      .order('submitted_at', { ascending: true }),
+    supabaseAdmin
+      .from('organization_profile')
+      .select('*')
+      .limit(1)
+      .maybeSingle(),
+  ])
 
+  const { data: meeting, error: meetingError } = meetingRes
   if (meetingError || !meeting) {
     throw new Error(`Failed to fetch meeting data: ${meetingError?.message || 'Meeting not found'}`)
   }
 
-  // 2. Fetch organizer profile separately (safe against constraint naming differences)
-  let organizerName = 'Meeting Organizer'
-  let organizerEmail = ''
-  if (meeting.created_by) {
-    const { data: organizer } = await supabaseAdmin
-      .from('profiles')
-      .select('full_name, email')
-      .eq('id', meeting.created_by)
-      .maybeSingle()
+  const organizerProfile = (meeting as any).profiles as { full_name?: string; email?: string } | null
+  const organizerName = organizerProfile?.full_name || 'Meeting Organizer'
 
-    if (organizer) {
-      organizerName = organizer.full_name || organizerName
-      organizerEmail = organizer.email || ''
-    }
-  }
-
-  // 3. Fetch attendance_staff for this meeting
-  const { data: staffRows, error: staffError } = await supabaseAdmin
-    .from('attendance_staff')
-    .select('*, departments(name, department_code)')
-    .eq('meeting_id', meetingId)
-    .order('submitted_at', { ascending: true })
-
+  const { data: staffRows, error: staffError } = staffRes
   if (staffError) console.warn(`Failed to fetch staff attendance: ${staffError.message}`)
 
-  // 4. Fetch attendance_visitor for this meeting
-  const { data: visitorRows, error: visitorError } = await supabaseAdmin
-    .from('attendance_visitor')
-    .select('*')
-    .eq('meeting_id', meetingId)
-    .order('submitted_at', { ascending: true })
-
+  const { data: visitorRows, error: visitorError } = visitorRes
   if (visitorError) console.warn(`Failed to fetch visitor attendance: ${visitorError.message}`)
 
-  // 5. Fetch organization profile safely
-  const { data: orgProfile } = await supabaseAdmin
-    .from('organization_profile')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
+  const { data: orgProfile } = orgProfileRes
 
   // Combine and format participants according to scope
   let sno = 1
@@ -116,9 +108,9 @@ export async function getMeetingDocumentData(
       venue: meeting.venue || '',
       type: meeting.meeting_type,
       reference: (meeting as any).virtual_link || (meeting as any).meeting_pin || '',
-      department: (meeting.departments as any)?.name || '',
+      department: (meeting.departments as any)?.name || (meeting as any).department_label || '',
       organizer: organizerName,
-      description: meeting.description || ''
+      description: (meeting.description || '').replace(/<!--KMTAMS_FORM_CONFIG:[\s\S]*?-->/g, '').trim()
     },
     participants,
     document: {

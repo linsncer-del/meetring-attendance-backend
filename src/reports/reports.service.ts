@@ -61,7 +61,7 @@ export const generateReport = async (meetingId: string, generatedBy: string) => 
   const totalAttendance = totalStaff + totalVisitors
 
   // 4. Build HTML and PDF
-  const departmentName = (meeting.departments as any)?.name ?? '—'
+  const departmentName = (meeting.departments as any)?.name ?? (meeting as any).department_label ?? '—'
   const html = buildReportHtml({
     meeting,
     organizer: organizer as Profile,
@@ -126,7 +126,7 @@ export const listReports = async (
     .from('reports')
     .select(
       `*,
-       meetings(title, meeting_date, meeting_type, departments(name)),
+       meetings(title, meeting_date, meeting_type, department_label, departments(name)),
        profiles!reports_generated_by_fkey(full_name, email)`,
       { count: 'exact' }
     )

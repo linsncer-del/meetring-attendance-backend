@@ -26,7 +26,7 @@ export const listMeetings = async (
        departments(name, department_code)`,
       { count: 'exact' }
     )
-    .order('meeting_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .range(from, to)
 
   // Meeting creators only see their own meetings; HR and admins see all
@@ -42,6 +42,24 @@ export const listMeetings = async (
   const { data, error, count } = await query
   if (error) throw new Error(error.message)
   return { meetings: data as Meeting[], total: count ?? 0 }
+}
+
+// ── Admin dashboard stats (system-wide, accurate raw counts) ───────────
+
+export const getDashboardStats = async () => {
+  const [staffRes, visitorRes] = await Promise.all([
+    supabaseAdmin.from('attendance_staff').select('attendance_id', { count: 'exact', head: true }),
+    supabaseAdmin.from('attendance_visitor').select('attendance_id', { count: 'exact', head: true }),
+  ])
+
+  if (staffRes.error) throw new Error(staffRes.error.message)
+  if (visitorRes.error) throw new Error(visitorRes.error.message)
+
+  return {
+    totalAttendanceStaff: staffRes.count ?? 0,
+    totalAttendanceVisitors: visitorRes.count ?? 0,
+    totalAttendance: (staffRes.count ?? 0) + (visitorRes.count ?? 0),
+  }
 }
 
 // ── Get single meeting ────────────────────────────────────────────────
@@ -81,61 +99,38 @@ export const createMeeting = async (
   createdBy: string
 ): Promise<Meeting> => {
   const trimmedTitle = input.title.trim()
+  const customPin = (input.meeting_pin && input.meeting_pin.trim() !== '') ? input.meeting_pin.trim() : null
 
-  // 1. Check title uniqueness on the same date to prevent duplicates
-  const { data: duplicate } = await supabaseAdmin
-    .from('meetings')
-    .select('meeting_id, title')
-    .ilike('title', trimmedTitle)
-    .eq('meeting_date', input.meeting_date)
-    .maybeSingle()
+  // 1 & 2. Title-uniqueness check and PIN resolution are independent of
+  // each other — run them concurrently instead of one-after-another.
+  const [duplicateRes, pin] = await Promise.all([
+    supabaseAdmin
+      .from('meetings')
+      .select('meeting_id, title')
+      .ilike('title', trimmedTitle)
+      .eq('meeting_date', input.meeting_date)
+      .maybeSingle(),
+    customPin
+      ? supabaseAdmin
+          .from('meetings')
+          .select('meeting_id')
+          .eq('meeting_pin', customPin)
+          .eq('meeting_date', input.meeting_date)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data) throw new Error(`The PIN ${customPin} is already in use for another meeting on this date`)
+            return customPin
+          })
+      : generateUniquePinForDate(input.meeting_date),
+  ])
 
-  if (duplicate) {
+  if (duplicateRes.data) {
     throw new Error(`A meeting with the title "${trimmedTitle}" already exists on ${input.meeting_date}. Please use a unique title.`)
   }
 
-  // 2. Generate or validate PIN
-  let pin: string
-  if (input.meeting_pin && input.meeting_pin.trim() !== '') {
-    const customPin = input.meeting_pin.trim()
-    const { data: existingPin } = await supabaseAdmin
-      .from('meetings')
-      .select('meeting_id')
-      .eq('meeting_pin', customPin)
-      .eq('meeting_date', input.meeting_date)
-      .maybeSingle()
-
-    if (existingPin) throw new Error(`The PIN ${customPin} is already in use for another meeting on this date`)
-    pin = customPin
-  } else {
-    pin = await generateUniquePinForDate(input.meeting_date)
-  }
-
-  // 3. Pre-generate meeting ID and URLs before insertion (Atomic)
+  // 3. Pre-generate meeting ID and the (deterministic, no-network) attendance URL
   const meetingId = randomUUID()
   const attendanceUrl = buildAttendanceUrl(meetingId)
-  let qrCodeUrl: string | null = null
-
-  try {
-    const qrCodeBase64 = await generateQRCodeBase64(attendanceUrl)
-    const qrPath = `qrcodes/${meetingId}.png`
-    const qrBuffer = Buffer.from(qrCodeBase64.replace(/^data:image\/png;base64,/, ''), 'base64')
-
-    const { error: storageError } = await supabaseAdmin.storage
-      .from('kmtams-assets')
-      .upload(qrPath, qrBuffer, { contentType: 'image/png', upsert: true })
-
-    if (!storageError) {
-      const { data: publicUrl } = supabaseAdmin.storage
-        .from('kmtams-assets')
-        .getPublicUrl(qrPath)
-      qrCodeUrl = publicUrl.publicUrl
-    } else {
-      console.warn('[CreateMeeting] QR Storage upload notice:', storageError.message)
-    }
-  } catch (qrErr) {
-    console.warn('[CreateMeeting] QR generation notice:', qrErr)
-  }
 
   const deptId = (input.department_id && input.department_id.trim() !== '' && input.department_id !== 'undefined' && input.department_id !== 'null')
     ? input.department_id.trim()
@@ -144,7 +139,13 @@ export const createMeeting = async (
   const virtualLink = (input.virtual_link && input.virtual_link.trim() !== '') ? input.virtual_link.trim() : null
   const description = (input.description && input.description.trim() !== '') ? input.description.trim() : null
 
-  // 4. Single atomic insertion with all fields — no separate update step
+  // 4. Single atomic insertion with all fields — no separate update step.
+  // qr_code_url is intentionally left null here: it's generated and
+  // uploaded to Storage in the background after this responds (see
+  // below) since nothing in the frontend reads it synchronously — the
+  // QR code shown to organizers is rendered client-side from
+  // attendance_url instead. That removed a Storage round-trip from the
+  // critical path of every meeting creation.
   const { data: meeting, error } = await supabaseAdmin
     .from('meetings')
     .insert({
@@ -163,7 +164,9 @@ export const createMeeting = async (
       created_by: createdBy,
       meeting_pin: pin,
       attendance_url: attendanceUrl,
-      qr_code_url: qrCodeUrl,
+      qr_code_url: null,
+      form_config: input.form_config ?? null,
+      department_label: input.department_label ?? null,
     })
     .select()
     .single()
@@ -173,7 +176,39 @@ export const createMeeting = async (
     throw new Error(error.message)
   }
 
+  // 5. Generate + upload the QR code in the background — don't make the
+  // caller wait on a Storage round-trip for a field nothing reads yet.
+  generateAndStoreQrCode(meetingId, attendanceUrl).catch(qrErr => {
+    console.warn('[CreateMeeting] Background QR generation notice:', qrErr)
+  })
+
   return meeting as Meeting
+}
+
+// ── Background QR code generation (fire-and-forget from createMeeting) ─
+
+const generateAndStoreQrCode = async (meetingId: string, attendanceUrl: string) => {
+  const qrCodeBase64 = await generateQRCodeBase64(attendanceUrl)
+  const qrPath = `qrcodes/${meetingId}.png`
+  const qrBuffer = Buffer.from(qrCodeBase64.replace(/^data:image\/png;base64,/, ''), 'base64')
+
+  const { error: storageError } = await supabaseAdmin.storage
+    .from('kmtams-assets')
+    .upload(qrPath, qrBuffer, { contentType: 'image/png', upsert: true })
+
+  if (storageError) {
+    console.warn('[CreateMeeting] QR Storage upload notice:', storageError.message)
+    return
+  }
+
+  const { data: publicUrl } = supabaseAdmin.storage
+    .from('kmtams-assets')
+    .getPublicUrl(qrPath)
+
+  await supabaseAdmin
+    .from('meetings')
+    .update({ qr_code_url: publicUrl.publicUrl })
+    .eq('meeting_id', meetingId)
 }
 
 // ── Update meeting ────────────────────────────────────────────────────
@@ -222,7 +257,7 @@ export const updateMeeting = async (
   const fields = [
     'title','description','meeting_type','venue','virtual_link',
     'meeting_date','start_time','end_time','attendance_open_time',
-    'attendance_close_time','department_id',
+    'attendance_close_time','department_id','department_label','form_config',
   ] as const
 
   for (const f of fields) {
@@ -435,7 +470,8 @@ export const sendMeetingReminders = async (
   }
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
-  const attendanceUrl = `${frontendUrl}/attend?pin=${meeting.pin}&meetingId=${meeting.meeting_id}`
+  const attendanceUrl = meeting.attendance_url || `${frontendUrl}/attend/${meeting.meeting_id}`
+  const meetingPin = meeting.meeting_pin || meeting.pin || ''
   const dayLabel = options.dayLabel || 'Session'
   const dateStr = options.dateStr || meeting.meeting_date
 
@@ -447,7 +483,7 @@ export const sendMeetingReminders = async (
         meeting.title,
         dayLabel,
         dateStr,
-        meeting.pin,
+        meetingPin,
         attendanceUrl,
         meeting.venue
       )

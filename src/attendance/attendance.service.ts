@@ -46,7 +46,7 @@ export const submitAttendance = async (
   // 1. Fetch and validate meeting
   const { data: meeting, error: meetingErr } = await supabaseAdmin
     .from('meetings')
-    .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time')
+    .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time, form_config')
     .eq('meeting_id', meeting_id)
     .single()
 
@@ -63,6 +63,12 @@ export const submitAttendance = async (
       throw new Error('Attendance has not been opened yet. Please wait for the organizer to open attendance.')
     }
     throw new Error('Attendance has been closed for this meeting.')
+  }
+
+  // 3b. Reject visitor submissions if the organizer disabled external sign-in
+  const allowVisitors = (meeting.form_config as any)?.allowVisitors !== false
+  if (input.participant_type === 'visitor' && !allowVisitors) {
+    throw new Error('External visitor sign-in is disabled for this meeting.')
   }
 
   // 4. Insert into the appropriate table
@@ -177,7 +183,7 @@ export const getAttendanceByMeeting = async (meetingId: string) => {
 export const getPublicMeetingInfo = async (meetingId: string) => {
   const { data, error } = await supabaseAdmin
     .from('meetings')
-    .select('meeting_id, title, meeting_type, venue, meeting_date, start_time, end_time, attendance_status, attendance_open_time, attendance_close_time, department_id, departments(name)')
+    .select('meeting_id, title, description, meeting_type, venue, meeting_date, start_time, end_time, attendance_status, attendance_open_time, attendance_close_time, department_id, department_label, form_config, departments(name)')
     .eq('meeting_id', meetingId)
     .single()
 

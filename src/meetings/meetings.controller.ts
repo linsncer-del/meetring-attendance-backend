@@ -28,6 +28,16 @@ export const list = async (c: Context<{ Variables: HonoVariables }>) => {
   }
 }
 
+// GET /api/meetings/dashboard-stats
+export const getDashboardStats = async (c: Context<{ Variables: HonoVariables }>) => {
+  try {
+    const stats = await MeetingsService.getDashboardStats()
+    return ok(c, stats)
+  } catch {
+    return serverError(c)
+  }
+}
+
 // GET /api/meetings/:id
 export const getOne = async (c: Context<{ Variables: HonoVariables }>) => {
   try {

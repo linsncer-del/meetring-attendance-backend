@@ -2,6 +2,7 @@ import * as UsersService from './users.service.js';
 import { ok, created, badRequest, notFound, serverError, paginated, } from '../utils/response.js';
 import { CreateUserSchema, UpdateUserSchema, PaginationSchema } from '../utils/validators.js';
 import { writeAuditLog } from '../middleware/audit.middleware.js';
+import { getClientIp } from '../utils/ip.js';
 // GET /api/users
 export const list = async (c) => {
     try {
@@ -35,7 +36,7 @@ export const create = async (c) => {
             return badRequest(c, parsed.error.issues[0].message);
         const newUser = await UsersService.createUser(parsed.data);
         const actor = c.get('user');
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(actor.id, 'user_created', `Created user: ${parsed.data.email}`, ip);
         return created(c, newUser);
     }
@@ -64,7 +65,7 @@ export const disable = async (c) => {
     try {
         await UsersService.setUserActive(c.req.param('id') || '', false);
         const actor = c.get('user');
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(actor.id, 'user_disabled', `Disabled user: ${c.req.param('id') || ''}`, ip);
         return ok(c, { message: 'User account disabled' });
     }
@@ -99,7 +100,7 @@ export const resetPassword = async (c) => {
         }
         await UsersService.adminResetPassword(c.req.param('id') || '', temp_password);
         const actor = c.get('user');
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(actor.id, 'user_password_reset', `Password reset for: ${c.req.param('id') || ''}`, ip);
         return ok(c, { message: `Password reset to default (${temp_password}). A notification has been sent to the user.` });
     }

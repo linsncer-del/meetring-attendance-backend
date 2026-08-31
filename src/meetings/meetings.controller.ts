@@ -5,6 +5,7 @@ import {
 } from '../utils/response.js'
 import { CreateMeetingSchema, UpdateMeetingSchema, PaginationSchema, ExtendAttendanceSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
+import { getClientIp } from '../utils/ip.js'
 import type { HonoVariables } from '../types/index.js'
 
 // GET /api/meetings
@@ -70,7 +71,7 @@ export const create = async (c: Context<{ Variables: HonoVariables }>) => {
     }
 
     const meeting = await MeetingsService.createMeeting(parsed.data as any, user.id)
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'meeting_created', `Meeting created: ${meeting.title}`, ip)
 
     return created(c, meeting)
@@ -92,7 +93,7 @@ export const update = async (c: Context<{ Variables: HonoVariables }>) => {
     const meeting = await MeetingsService.updateMeeting(
       c.req.param('id') || '', parsed.data, user.id, user.role
     )
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'meeting_updated', `Meeting updated: ${meeting.title}`, ip)
 
     return ok(c, meeting)
@@ -108,7 +109,7 @@ export const openAttendance = async (c: Context<{ Variables: HonoVariables }>) =
     const user = c.get('user')
     await MeetingsService.openAttendance(c.req.param('id') || '', user.id, user.role)
 
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'attendance_opened', `Opened attendance for meeting: ${c.req.param('id') || ''}`, ip)
 
     return ok(c, { message: 'Attendance is now OPEN' })
@@ -133,7 +134,7 @@ export const extendAttendance = async (c: Context<{ Variables: HonoVariables }>)
       user.role
     )
 
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'attendance_opened', `Extended attendance by ${minutes} mins for meeting: ${c.req.param('id') || ''}`, ip)
 
     return ok(c, { message: `Attendance extended by ${minutes} minutes and is now OPEN`, meeting })
@@ -149,7 +150,7 @@ export const closeAttendance = async (c: Context<{ Variables: HonoVariables }>) 
     const user = c.get('user')
     await MeetingsService.closeAttendance(c.req.param('id') || '', user.id, user.role)
 
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'attendance_closed', `Closed attendance for meeting: ${c.req.param('id') || ''}`, ip)
 
     return ok(c, { message: 'Attendance is now CLOSED' })
@@ -171,7 +172,7 @@ export const sendReminders = async (c: Context<{ Variables: HonoVariables }>) =>
       user.role
     )
 
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(user.id, 'attendance_reminders_sent', `Sent ${result.sentCount} attendance reminder emails for meeting: ${c.req.param('id') || ''}`, ip)
 
     return ok(c, { message: `Successfully sent ${result.sentCount} reminder email(s) via Resend`, result })

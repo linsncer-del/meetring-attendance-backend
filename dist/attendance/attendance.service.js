@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js';
+import { sanitizeIp } from '../utils/ip.js';
 // ── Validate PIN & Status (PUBLIC — called before form access) ────────
 export const validateMeetingPin = async (meetingId, meetingPin) => {
     // 1. Fetch meeting info
@@ -29,7 +30,7 @@ export const submitAttendance = async (input, ipAddress) => {
     // 1. Fetch and validate meeting
     const { data: meeting, error: meetingErr } = await supabaseAdmin
         .from('meetings')
-        .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time')
+        .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time, form_config')
         .eq('meeting_id', meeting_id)
         .single();
     if (meetingErr || !meeting)
@@ -45,7 +46,13 @@ export const submitAttendance = async (input, ipAddress) => {
         }
         throw new Error('Attendance has been closed for this meeting.');
     }
+    // 3b. Reject visitor submissions if the organizer disabled external sign-in
+    const allowVisitors = meeting.form_config?.allowVisitors !== false;
+    if (input.participant_type === 'visitor' && !allowVisitors) {
+        throw new Error('External visitor sign-in is disabled for this meeting.');
+    }
     // 4. Insert into the appropriate table
+    const cleanIp = sanitizeIp(ipAddress);
     if (input.participant_type === 'staff') {
         const insertPayload = {
             meeting_id,
@@ -53,7 +60,7 @@ export const submitAttendance = async (input, ipAddress) => {
             designation: input.designation,
             department_id: input.department_id,
             signature_data: input.signature_data,
-            ip_address: ipAddress ?? null,
+            ip_address: cleanIp,
         };
         if (input.custom_responses) {
             insertPayload.custom_responses = input.custom_responses;
@@ -91,7 +98,7 @@ export const submitAttendance = async (input, ipAddress) => {
             position_title: input.position_title ?? null,
             purpose: input.purpose,
             signature_data: input.signature_data,
-            ip_address: ipAddress ?? null,
+            ip_address: cleanIp,
         };
         if (input.custom_responses) {
             insertPayload.custom_responses = input.custom_responses;
@@ -151,7 +158,7 @@ export const getAttendanceByMeeting = async (meetingId) => {
 export const getPublicMeetingInfo = async (meetingId) => {
     const { data, error } = await supabaseAdmin
         .from('meetings')
-        .select('meeting_id, title, meeting_type, venue, meeting_date, start_time, end_time, attendance_status, attendance_open_time, attendance_close_time, department_id, departments(name)')
+        .select('meeting_id, title, description, meeting_type, venue, meeting_date, start_time, end_time, attendance_status, attendance_open_time, attendance_close_time, department_id, department_label, form_config, departments(name)')
         .eq('meeting_id', meetingId)
         .single();
     if (error || !data)

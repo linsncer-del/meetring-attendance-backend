@@ -2,6 +2,7 @@ import * as AttendanceService from './attendance.service.js';
 import { ok, badRequest, notFound, serverError } from '../utils/response.js';
 import { SubmitAttendanceSchema, ValidatePinSchema } from '../utils/validators.js';
 import { writeAuditLog } from '../middleware/audit.middleware.js';
+import { getClientIp } from '../utils/ip.js';
 // POST /api/attendance/validate-pin (PUBLIC — verify PIN and open status before form)
 export const validatePin = async (c) => {
     try {
@@ -34,9 +35,7 @@ export const submit = async (c) => {
         const parsed = SubmitAttendanceSchema.safeParse(body);
         if (!parsed.success)
             return badRequest(c, parsed.error.issues[0].message);
-        const ip = c.req.header('x-forwarded-for') ??
-            c.req.header('x-real-ip') ??
-            undefined;
+        const ip = getClientIp(c);
         const result = await AttendanceService.submitAttendance(parsed.data, ip);
         // Log (no user_id since this is a public endpoint)
         writeAuditLog(null, 'attendance_submitted', `${parsed.data.participant_type} submitted for meeting: ${parsed.data.meeting_id}`, ip);

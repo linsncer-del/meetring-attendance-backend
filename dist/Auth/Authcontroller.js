@@ -2,6 +2,7 @@ import * as AuthService from './Authservice.js';
 import { ok, badRequest, serverError } from '../utils/response.js';
 import { LoginSchema, ChangePasswordSchema, ResetPasswordRequestSchema, ResetPasswordWithTokenSchema } from '../utils/validators.js';
 import { writeAuditLog } from '../middleware/audit.middleware.js';
+import { getClientIp } from '../utils/ip.js';
 // ── POST /api/auth/login ──────────────────────────────────────────────
 export const login = async (c) => {
     try {
@@ -11,7 +12,7 @@ export const login = async (c) => {
             return badRequest(c, parsed.error.issues[0].message);
         const { email, password } = parsed.data;
         const result = await AuthService.signIn(email, password);
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(result.user.id, 'login', `Login from ${email}`, ip);
         return ok(c, {
             access_token: result.session.access_token,
@@ -32,7 +33,7 @@ export const logout = async (c) => {
         const user = c.get('user');
         const token = c.get('token');
         await AuthService.signOut(token);
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(user.id, 'logout', undefined, ip);
         return ok(c, { message: 'Logged out successfully' });
     }
@@ -50,7 +51,7 @@ export const changePassword = async (c) => {
         if (!parsed.success)
             return badRequest(c, parsed.error.issues[0].message);
         await AuthService.changePassword(user.id, token, parsed.data.new_password);
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         writeAuditLog(user.id, 'password_change', 'User changed their password', ip);
         return ok(c, { message: 'Password changed successfully' });
     }
@@ -68,7 +69,7 @@ export const requestPasswordReset = async (c) => {
             return badRequest(c, parsed.error.issues[0].message);
         const origin = c.req.header('origin') || c.req.header('referer');
         const result = await AuthService.requestPasswordReset(parsed.data.email, origin);
-        const ip = c.req.header('x-forwarded-for') ?? undefined;
+        const ip = getClientIp(c);
         if (result.profile?.id) {
             writeAuditLog(result.profile.id, 'user_password_reset', `Admin password reset requested for ${parsed.data.email}`, ip);
         }

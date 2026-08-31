@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js';
+import { getClientIp, sanitizeIp } from '../utils/ip.js';
 /**
  * Writes an entry to the audit_logs table.
  * Fire-and-forget — never blocks the response.
@@ -12,7 +13,7 @@ export const writeAuditLog = (userId, action, details, ipAddress) => {
                 user_id: userId,
                 action,
                 details: details ?? null,
-                ip_address: ipAddress ?? null,
+                ip_address: sanitizeIp(ipAddress),
             });
         }
         catch (err) {
@@ -30,7 +31,7 @@ export const auditLog = (action, detailsFn) => {
     return async (c, next) => {
         await next();
         const user = c.get('user');
-        const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined;
+        const ip = getClientIp(c);
         const details = detailsFn ? detailsFn(c) : undefined;
         writeAuditLog(user?.id ?? null, action, details, ip);
     };

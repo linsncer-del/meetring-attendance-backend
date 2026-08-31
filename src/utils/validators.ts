@@ -164,7 +164,7 @@ export const UpdateOrganizationSchema = z.object({
 
 export const PaginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(1000).default(500),
 })
 
 // ── Inferred types ────────────────────────────────────────────────────

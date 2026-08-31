@@ -4,7 +4,7 @@ import { generateUniquePinForDate } from '../utils/pin.js';
 import { buildAttendanceUrl, generateQRCodeBase64 } from '../utils/qrcode.js';
 import { sendMail, templates } from '../config/mailer.js';
 // ── List meetings ─────────────────────────────────────────────────────
-export const listMeetings = async (userId, role, page = 1, limit = 20, filters) => {
+export const listMeetings = async (userId, role, page = 1, limit = 500, filters) => {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
     let query = supabaseAdmin
@@ -15,7 +15,7 @@ export const listMeetings = async (userId, role, page = 1, limit = 20, filters) 
         .order('created_at', { ascending: false })
         .range(from, to);
     // Meeting creators only see their own meetings; HR and admins see all
-    if (role === 'meeting_creator') {
+    if (role === 'meeting_creator' || role === 'organizer') {
         query = query.eq('created_by', userId);
     }
     if (filters?.status)
@@ -27,8 +27,29 @@ export const listMeetings = async (userId, role, page = 1, limit = 20, filters) 
     if (filters?.search)
         query = query.ilike('title', `%${filters.search}%`);
     const { data, error, count } = await query;
-    if (error)
-        throw new Error(error.message);
+    if (error) {
+        // Fallback if relation join fails
+        let fallbackQuery = supabaseAdmin
+            .from('meetings')
+            .select('*', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(from, to);
+        if (role === 'meeting_creator' || role === 'organizer') {
+            fallbackQuery = fallbackQuery.eq('created_by', userId);
+        }
+        if (filters?.status)
+            fallbackQuery = fallbackQuery.eq('attendance_status', filters.status);
+        if (filters?.meetingType)
+            fallbackQuery = fallbackQuery.eq('meeting_type', filters.meetingType);
+        if (filters?.departmentId)
+            fallbackQuery = fallbackQuery.eq('department_id', filters.departmentId);
+        if (filters?.search)
+            fallbackQuery = fallbackQuery.ilike('title', `%${filters.search}%`);
+        const fallbackRes = await fallbackQuery;
+        if (fallbackRes.error)
+            throw new Error(fallbackRes.error.message);
+        return { meetings: fallbackRes.data, total: fallbackRes.count ?? 0 };
+    }
     return { meetings: data, total: count ?? 0 };
 };
 // ── Admin dashboard stats (system-wide, accurate raw counts) ───────────

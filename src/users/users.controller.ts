@@ -5,6 +5,7 @@ import {
 } from '../utils/response.js'
 import { CreateUserSchema, UpdateUserSchema, PaginationSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
+import { getClientIp } from '../utils/ip.js'
 import type { HonoVariables } from '../types/index.js'
 
 // GET /api/users
@@ -40,7 +41,7 @@ export const create = async (c: Context<{ Variables: HonoVariables }>) => {
 
     const newUser = await UsersService.createUser(parsed.data)
     const actor = c.get('user')
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(actor.id, 'user_created', `Created user: ${parsed.data.email}`, ip)
 
     return created(c, newUser)
@@ -70,7 +71,7 @@ export const disable = async (c: Context<{ Variables: HonoVariables }>) => {
   try {
     await UsersService.setUserActive(c.req.param('id') || '', false)
     const actor = c.get('user')
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(actor.id, 'user_disabled', `Disabled user: ${c.req.param('id') || ''}`, ip)
     return ok(c, { message: 'User account disabled' })
   } catch (err: unknown) {
@@ -105,7 +106,7 @@ export const resetPassword = async (c: Context<{ Variables: HonoVariables }>) =>
 
     await UsersService.adminResetPassword(c.req.param('id') || '', temp_password)
     const actor = c.get('user')
-    const ip = c.req.header('x-forwarded-for') ?? undefined
+    const ip = getClientIp(c)
     writeAuditLog(actor.id, 'user_password_reset', `Password reset for: ${c.req.param('id') || ''}`, ip)
 
     return ok(c, { message: `Password reset to default (${temp_password}). A notification has been sent to the user.` })

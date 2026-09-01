@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono'
 import { supabaseAdmin } from '../config/supabase.js'
 import type { AuditAction, HonoVariables } from '../types/index.js'
+import { getClientIp, sanitizeIp } from '../utils/ip.js'
 
 /**
  * Writes an entry to the audit_logs table.
@@ -20,7 +21,7 @@ export const writeAuditLog = (
           user_id: userId,
           action,
           details: details ?? null,
-          ip_address: ipAddress ?? null,
+          ip_address: sanitizeIp(ipAddress),
         })
     } catch (err: unknown) {
       console.error('[AuditLog] Failed to write:', err)
@@ -43,7 +44,7 @@ export const auditLog = (action: AuditAction, detailsFn?: (c: Context) => string
     await next()
 
     const user = c.get('user')
-    const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined
+    const ip = getClientIp(c)
     const details = detailsFn ? detailsFn(c) : undefined
 
     writeAuditLog(user?.id ?? null, action, details, ip)

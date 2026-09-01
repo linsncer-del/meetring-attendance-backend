@@ -8,8 +8,8 @@ deptRouter.get('/', list);
 // All other routes require authentication
 deptRouter.use('*', authMiddleware);
 deptRouter.get('/:id', getOne);
-// Only ICT Admin can write
-deptRouter.post('/', requireRole('ict_admin'), create);
+// Admin, HR, and Meeting Creators can create departments
+deptRouter.post('/', requireRole(['ict_admin', 'meeting_creator', 'hr_officer']), create);
 deptRouter.patch('/:id', requireRole('ict_admin'), update);
 deptRouter.delete('/:id', requireRole('ict_admin'), remove);
 export default deptRouter;

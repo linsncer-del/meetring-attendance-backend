@@ -57,6 +57,7 @@ export const CreateMeetingSchema = z.object({
     attendance_open_time: z.string().min(1, 'Attendance open time is required'),
     attendance_close_time: z.string().min(1, 'Attendance close time is required'),
     department_id: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
+    department_label: z.string().max(200).optional().nullable().or(z.literal('')).transform(v => v || null),
     meeting_pin: z.string().optional().nullable().or(z.literal('')).transform(v => v || null),
     form_config: z.any().optional(),
 });

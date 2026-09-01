@@ -7,21 +7,25 @@ export const generateRawPin = () => {
 };
 /**
  * Generates a PIN that is unique for the given meeting date.
- * Retries up to 10 times before throwing.
+ *
+ * Fetches every PIN already used on this date in a single round-trip,
+ * then picks random candidates in memory until one isn't taken. This
+ * replaces the old "generate one, ask the DB, repeat up to 10 times"
+ * loop — which cost up to 10 sequential network round-trips per
+ * meeting creation — with exactly one.
  */
 export const generateUniquePinForDate = async (meetingDate) => {
-    for (let attempt = 0; attempt < 10; attempt++) {
+    const { data, error } = await supabaseAdmin
+        .from('meetings')
+        .select('meeting_pin')
+        .eq('meeting_date', meetingDate);
+    if (error)
+        throw new Error(`PIN uniqueness check failed: ${error.message}`);
+    const usedPins = new Set((data ?? []).map(row => row.meeting_pin));
+    for (let attempt = 0; attempt < 50; attempt++) {
         const pin = generateRawPin();
-        const { data, error } = await supabaseAdmin
-            .from('meetings')
-            .select('meeting_id')
-            .eq('meeting_pin', pin)
-            .eq('meeting_date', meetingDate)
-            .maybeSingle();
-        if (error)
-            throw new Error(`PIN uniqueness check failed: ${error.message}`);
-        if (!data)
-            return pin; // PIN is unique for this date
+        if (!usedPins.has(pin))
+            return pin;
     }
-    throw new Error('Unable to generate a unique PIN after 10 attempts');
+    throw new Error('Unable to generate a unique PIN after 50 attempts');
 };

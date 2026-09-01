@@ -52,7 +52,7 @@ export const generateReport = async (meetingId, generatedBy) => {
     const totalVisitors = visitorList.length;
     const totalAttendance = totalStaff + totalVisitors;
     // 4. Build HTML and PDF
-    const departmentName = meeting.departments?.name ?? '—';
+    const departmentName = meeting.departments?.name ?? meeting.department_label ?? '—';
     const html = buildReportHtml({
         meeting,
         organizer: organizer,
@@ -99,7 +99,7 @@ export const listReports = async (userId, role, page = 1, limit = 20, status) =>
     let query = supabaseAdmin
         .from('reports')
         .select(`*,
-       meetings(title, meeting_date, meeting_type, departments(name)),
+       meetings(title, meeting_date, meeting_type, department_label, departments(name)),
        profiles!reports_generated_by_fkey(full_name, email)`, { count: 'exact' })
         .order('generated_at', { ascending: false })
         .range(from, to);

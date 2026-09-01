@@ -49,6 +49,29 @@ export const createDepartment = async (
   return data as Department
 }
 
+// ── Create multiple departments (batch) ───────────────────────────────
+
+export const createMultipleDepartments = async (
+  inputs: CreateDepartmentInput[]
+): Promise<Department[]> => {
+  const payload = inputs.map(i => ({
+    department_code: i.department_code.toUpperCase(),
+    name: i.name.trim(),
+    description: i.description ?? `Department of ${i.name.trim()}`,
+  }))
+
+  const { data, error } = await supabaseAdmin
+    .from('departments')
+    .insert(payload)
+    .select()
+
+  if (error) {
+    if (error.code === '23505') throw new Error('One or more department codes or names already exist')
+    throw new Error(error.message)
+  }
+  return (data || []) as Department[]
+}
+
 // ── Update department ─────────────────────────────────────────────────
 
 export const updateDepartment = async (

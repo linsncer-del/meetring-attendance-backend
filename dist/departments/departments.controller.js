@@ -25,6 +25,35 @@ export const getOne = async (c) => {
 export const create = async (c) => {
     try {
         const body = await c.req.json();
+        // 1. Array of departments: [{ name, department_code, ... }]
+        if (Array.isArray(body)) {
+            const items = [];
+            for (const item of body) {
+                const parsed = CreateDepartmentSchema.safeParse(item);
+                if (parsed.success) {
+                    items.push(parsed.data);
+                }
+            }
+            if (items.length === 0)
+                return badRequest(c, 'Invalid department list provided');
+            const createdDepts = await DeptService.createMultipleDepartments(items);
+            return created(c, createdDepts);
+        }
+        // 2. Object with departments array: { departments: [...] }
+        if (body && Array.isArray(body.departments)) {
+            const items = [];
+            for (const item of body.departments) {
+                const parsed = CreateDepartmentSchema.safeParse(item);
+                if (parsed.success) {
+                    items.push(parsed.data);
+                }
+            }
+            if (items.length === 0)
+                return badRequest(c, 'Invalid department list provided');
+            const createdDepts = await DeptService.createMultipleDepartments(items);
+            return created(c, createdDepts);
+        }
+        // 3. Single department
         const parsed = CreateDepartmentSchema.safeParse(body);
         if (!parsed.success)
             return badRequest(c, parsed.error.issues[0].message);

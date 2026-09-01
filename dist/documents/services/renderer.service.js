@@ -8,15 +8,20 @@ import { getTemplateFile } from './template.service.js';
 import { getMeetingDocumentData } from './documentData.service.js';
 import { generatePdfFromHtml, buildReportHtml } from '../../utils/pdfReport.js';
 export async function renderDocument(options) {
-    // 1. Get meeting document data (always called)
-    const documentData = await getMeetingDocumentData(options.meetingId, options.userId, options.scope);
+    // Fetch the meeting/attendance data needed for every render, and (if a
+    // template was requested) look up which template file to use — these
+    // are independent of each other, so run them concurrently instead of
+    // waiting on the full document-data fetch before even starting the
+    // template lookup.
+    const [documentData, templateUrl] = await Promise.all([
+        getMeetingDocumentData(options.meetingId, options.userId, options.scope),
+        options.templateId ? getTemplateFile(options.templateId, options.version) : Promise.resolve(null),
+    ]);
     let finalBuffer = null;
     let finalFormat = options.format;
     let useBuiltInFallback = false;
-    if (options.templateId) {
+    if (options.templateId && templateUrl) {
         try {
-            // Fetch template version file from storage
-            const templateUrl = await getTemplateFile(options.templateId, options.version);
             const templateResponse = await fetch(templateUrl);
             if (!templateResponse.ok) {
                 throw new Error('Failed to fetch template');

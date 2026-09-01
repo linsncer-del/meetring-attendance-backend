@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/role.middleware.js';
-import { list, getOne, getLive, create, update, openAttendance, closeAttendance, extendAttendance, sendReminders, } from './meetings.controller.js';
+import { list, getOne, getLive, getDashboardStats, create, update, openAttendance, closeAttendance, extendAttendance, sendReminders, } from './meetings.controller.js';
 const meetingsRouter = new Hono();
 // All routes require authentication
 meetingsRouter.use('*', authMiddleware);
 // Read — all authenticated users
 meetingsRouter.get('/', list);
+// Must be registered before /:id so it isn't swallowed as a meeting-id param
+meetingsRouter.get('/dashboard-stats', requireRole(['ict_admin', 'hr_officer']), getDashboardStats);
 meetingsRouter.get('/:id', getOne);
 meetingsRouter.get('/:id/live', getLive);
 // Write — meeting_creator, hr_officer, ict_admin (organizers create their own)

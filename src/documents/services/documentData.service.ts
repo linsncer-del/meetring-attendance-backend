@@ -65,7 +65,8 @@ export async function getMeetingDocumentData(
         department: (p.departments as any)?.name || '',
         signature: p.signature_data || '',
         status: 'present',
-        type: 'staff' as const
+        type: 'staff' as const,
+        ...(p.custom_responses || {})
       })
     }
   }
@@ -81,7 +82,8 @@ export async function getMeetingDocumentData(
         department: '',
         signature: p.signature_data || '',
         status: 'present',
-        type: 'visitor' as const
+        type: 'visitor' as const,
+        ...(p.custom_responses || {})
       })
     }
   }

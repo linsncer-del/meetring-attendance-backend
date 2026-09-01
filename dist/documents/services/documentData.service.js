@@ -54,7 +54,8 @@ export async function getMeetingDocumentData(meetingId, generatedBy, scope = 'al
                 department: p.departments?.name || '',
                 signature: p.signature_data || '',
                 status: 'present',
-                type: 'staff'
+                type: 'staff',
+                ...(p.custom_responses || {})
             });
         }
     }
@@ -69,7 +70,8 @@ export async function getMeetingDocumentData(meetingId, generatedBy, scope = 'al
                 department: '',
                 signature: p.signature_data || '',
                 status: 'present',
-                type: 'visitor'
+                type: 'visitor',
+                ...(p.custom_responses || {})
             });
         }
     }

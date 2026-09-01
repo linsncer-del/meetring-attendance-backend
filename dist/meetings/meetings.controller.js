@@ -153,3 +153,17 @@ export const sendReminders = async (c) => {
         return badRequest(c, message);
     }
 };
+// DELETE /api/meetings/:id
+export const remove = async (c) => {
+    try {
+        const user = c.get('user');
+        const result = await MeetingsService.deleteMeeting(c.req.param('id') || '', user.id, user.role);
+        const ip = getClientIp(c);
+        writeAuditLog(user.id, 'meeting_deleted', `Deleted meeting: ${c.req.param('id') || ''}`, ip);
+        return ok(c, result);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete meeting';
+        return badRequest(c, message);
+    }
+};

@@ -34,6 +34,7 @@ export type AuditAction =
   | 'password_change'
   | 'meeting_created'
   | 'meeting_updated'
+  | 'meeting_deleted'
   | 'attendance_opened'
   | 'attendance_closed'
   | 'attendance_submitted'

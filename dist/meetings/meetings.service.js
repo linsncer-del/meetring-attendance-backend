@@ -410,3 +410,31 @@ export const sendMeetingReminders = async (meetingId, options, requesterId, requ
     }
     return { success: true, sentCount, totalRecipients: recipientList.length };
 };
+// ── Delete meeting ────────────────────────────────────────────────────
+export const deleteMeeting = async (meetingId, requesterId, requesterRole) => {
+    // Ownership check
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+        .from('meetings')
+        .select('created_by, title')
+        .eq('meeting_id', meetingId)
+        .single();
+    if (fetchErr || !existing)
+        throw new Error('Meeting not found');
+    if (requesterRole !== 'ict_admin' && existing.created_by !== requesterId) {
+        throw new Error('You can only delete meetings you created');
+    }
+    // Delete associated attendances and reports
+    await Promise.all([
+        supabaseAdmin.from('attendance_staff').delete().eq('meeting_id', meetingId),
+        supabaseAdmin.from('attendance_visitor').delete().eq('meeting_id', meetingId),
+        supabaseAdmin.from('attendance_records').delete().eq('meeting_id', meetingId),
+        supabaseAdmin.from('reports').delete().eq('meeting_id', meetingId),
+    ]);
+    const { error: delErr } = await supabaseAdmin
+        .from('meetings')
+        .delete()
+        .eq('meeting_id', meetingId);
+    if (delErr)
+        throw new Error(delErr.message);
+    return { success: true, message: `Meeting "${existing.title}" deleted successfully` };
+};

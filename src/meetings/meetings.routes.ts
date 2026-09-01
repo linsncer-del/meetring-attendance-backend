@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.middleware.js'
 import { requireRole } from '../middleware/role.middleware.js'
 import {
-  list, getOne, getLive, getDashboardStats, create, update, openAttendance, closeAttendance, extendAttendance, sendReminders,
+  list, getOne, getLive, getDashboardStats, create, update, remove, openAttendance, closeAttendance, extendAttendance, sendReminders,
 } from './meetings.controller.js'
 import type { HonoVariables } from '../types/index.js'
 
@@ -29,6 +29,12 @@ meetingsRouter.patch(
   '/:id',
   requireRole(['meeting_creator', 'hr_officer', 'ict_admin']),
   update
+)
+
+meetingsRouter.delete(
+  '/:id',
+  requireRole(['meeting_creator', 'hr_officer', 'ict_admin']),
+  remove
 )
 
 // Open / Close / Extend attendance

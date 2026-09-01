@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/role.middleware.js';
-import { list, getOne, getLive, getDashboardStats, create, update, openAttendance, closeAttendance, extendAttendance, sendReminders, } from './meetings.controller.js';
+import { list, getOne, getLive, getDashboardStats, create, update, remove, openAttendance, closeAttendance, extendAttendance, sendReminders, } from './meetings.controller.js';
 const meetingsRouter = new Hono();
 // All routes require authentication
 meetingsRouter.use('*', authMiddleware);
@@ -14,6 +14,7 @@ meetingsRouter.get('/:id/live', getLive);
 // Write — meeting_creator, hr_officer, ict_admin (organizers create their own)
 meetingsRouter.post('/', requireRole(['meeting_creator', 'hr_officer', 'ict_admin']), create);
 meetingsRouter.patch('/:id', requireRole(['meeting_creator', 'hr_officer', 'ict_admin']), update);
+meetingsRouter.delete('/:id', requireRole(['meeting_creator', 'hr_officer', 'ict_admin']), remove);
 // Open / Close / Extend attendance
 meetingsRouter.post('/:id/open-attendance', requireRole(['meeting_creator', 'ict_admin']), openAttendance);
 meetingsRouter.post('/:id/extend-attendance', requireRole(['meeting_creator', 'ict_admin']), extendAttendance);

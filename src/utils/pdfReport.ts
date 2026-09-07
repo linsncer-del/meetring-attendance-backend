@@ -201,41 +201,141 @@ export const buildReportHtml = (data: ReportData): string => {
 // PDF generation (puppeteer-core + @sparticuz/chromium — cloud-compatible)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const generatePdfFromHtml = async (html: string): Promise<Buffer> => {
-  const puppeteer = (await import('puppeteer-core')).default
-  let executablePath: string | undefined
+// Finds a usable Chromium: the bundled one in a serverless environment, or a
+// locally installed Edge / Chrome during development.
+// Where a desktop Chromium normally lives, per platform.
+const chromeCandidates = async (): Promise<string[]> => {
+  const path = await import('node:path')
 
-  try {
-    const chromium = (await import('@sparticuz/chromium')).default
-    executablePath = await chromium.executablePath()
-  } catch (e) {
-    // Local development fallback for Windows/macOS/Linux
+  if (process.platform === 'win32') {
+    const programFiles = process.env.ProgramFiles ?? 'C:/Program Files'
+    const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:/Program Files (x86)'
+    const localAppData = process.env.LOCALAPPDATA ?? ''
+    const roots = [programFiles, programFilesX86, localAppData].filter(Boolean)
+    const apps: [string, string, string][] = [
+      ['Microsoft', 'Edge', 'msedge.exe'],
+      ['Google', 'Chrome', 'chrome.exe'],
+      ['Chromium', 'Application', 'chrome.exe'],
+    ]
+    const out: string[] = []
+    for (const root of roots) {
+      for (const [vendor, product, exe] of apps) {
+        out.push(
+          product === 'Application'
+            ? path.join(root, vendor, product, exe)
+            : path.join(root, vendor, product, 'Application', exe)
+        )
+      }
+    }
+    return out
   }
 
-  // Windows local browser paths if chromium package fails locally
-  if (!executablePath && process.platform === 'win32') {
-    const fs = await import('node:fs')
-    const possiblePaths = [
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe',
+  if (process.platform === 'darwin') {
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
     ]
-    for (const p of possiblePaths) {
-      if (p && fs.existsSync(p)) {
-        executablePath = p
-        break
-      }
+  }
+
+  return [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/microsoft-edge',
+    '/snap/bin/chromium',
+  ]
+}
+
+// Locates a Chromium to render with.
+//
+// Order matters. @sparticuz/chromium ships a Linux binary for serverless
+// deployments; on Windows its executablePath() still returns a path under the
+// temp directory that was never created, so it must be verified rather than
+// trusted. An unchecked truthy value there is what produced
+// "spawn ...Temp\chromium ENOENT" and skipped the local-browser fallback.
+const resolveChromePath = async (): Promise<string | undefined> => {
+  const fs = await import('node:fs')
+  const usable = (candidate?: string | null) =>
+    candidate && fs.existsSync(candidate) ? candidate : undefined
+
+  // 1. An explicit override always wins.
+  const configured = usable(process.env.PUPPETEER_EXECUTABLE_PATH) ?? usable(process.env.CHROME_PATH)
+  if (configured) return configured
+
+  // 2. The bundled serverless binary, but only where it is real.
+  if (process.platform === 'linux') {
+    try {
+      const chromium = (await import('@sparticuz/chromium')).default
+      const bundled = usable(await chromium.executablePath())
+      if (bundled) return bundled
+    } catch {
+      // Not installed or not extractable here; fall through to a local browser.
     }
   }
 
-  const browser = await puppeteer.launch({
+  // 3. A locally installed Edge / Chrome / Chromium.
+  for (const candidate of await chromeCandidates()) {
+    const found = usable(candidate)
+    if (found) return found
+  }
+
+  return undefined
+}
+
+const launchBrowser = async () => {
+  const puppeteer = (await import('puppeteer-core')).default
+  const executablePath = await resolveChromePath()
+
+  if (!executablePath) {
+    throw new Error(
+      'No Chrome, Edge or Chromium installation was found for PDF rendering. ' +
+        'Install one, or set PUPPETEER_EXECUTABLE_PATH to its executable.'
+    )
+  }
+
+  return puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    executablePath: executablePath || undefined,
+    executablePath,
     headless: true,
   })
+}
+
+// Renders a complete, self-contained HTML document exactly as authored: the
+// page box comes from the document's own @page rule, not from margins imposed
+// here, so a register laid out in the browser prints identically.
+//
+// The document is treated as untrusted. Scripts are disabled and every network
+// request is aborted, so the headless browser cannot be steered into fetching
+// internal URLs or local files — every image must already be a data: URI.
+export const generatePdfFromDocument = async (
+  html: string,
+  landscape: boolean
+): Promise<Buffer> => {
+  const browser = await launchBrowser()
+  try {
+    const page = await browser.newPage()
+    await page.setJavaScriptEnabled(false)
+    // Offline mode fails every network fetch while leaving setContent and
+    // data: URIs working, so the document cannot reach internal hosts or files.
+    await page.setOfflineMode(true)
+
+    await page.setContent(html, { waitUntil: 'load', timeout: 20000 })
+    const pdfBuffer = await page.pdf({
+      preferCSSPageSize: true,
+      landscape,
+      printBackground: true,
+      margin: { top: '0', bottom: '0', left: '0', right: '0' },
+    })
+    return Buffer.from(pdfBuffer)
+  } finally {
+    await browser.close()
+  }
+}
+
+export const generatePdfFromHtml = async (html: string): Promise<Buffer> => {
+  const browser = await launchBrowser()
 
   try {
     const page = await browser.newPage()

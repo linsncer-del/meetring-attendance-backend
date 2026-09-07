@@ -7,7 +7,7 @@ import {
   getPlaceholders,
   listAssets, uploadAsset, deleteAsset,
   getOrganizationProfile, updateOrganizationProfile,
-  getMeetingDocumentData, renderDocument,
+  getMeetingDocumentData, renderDocument, renderRegisterPdf,
   listGeneratedDocuments, downloadGeneratedDocument
 } from './documents.controller.js'
 import type { HonoVariables } from '../types/index.js'
@@ -41,6 +41,9 @@ router.patch('/organization', requireRole(['ict_admin']), updateOrganizationProf
 // Rendering & Document Data
 router.get('/meetings/:meetingId/data', getMeetingDocumentData)
 router.post('/render/:meetingId', requireRole(['meeting_creator', 'hr_officer', 'ict_admin']), renderDocument)
+
+// One-click register download — no template or format to choose
+router.post('/register-pdf/:meetingId', requireRole(['meeting_creator', 'hr_officer', 'ict_admin']), renderRegisterPdf)
 
 // Generated Documents
 router.get('/generated', listGeneratedDocuments)

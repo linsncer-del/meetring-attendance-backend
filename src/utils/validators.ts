@@ -114,6 +114,20 @@ export const SubmitAttendanceSchema = z.discriminatedUnion('participant_type', [
   SubmitVisitorAttendanceSchema,
 ])
 
+// ── Attendance — post-hoc correction by an organiser / HR ─────────────
+// Deliberately narrow. signature_data and submitted_at are evidence of who
+// signed and when, so they are not correctable. department_id is a foreign key
+// and purpose is an enum — neither can be set from free text typed into a cell.
+export const UpdateAttendanceSchema = z
+  .object({
+    full_name: z.string().min(1).max(150).optional(),
+    designation: z.string().max(150).optional(),
+    organization: z.string().max(200).optional(),
+    position_title: z.string().max(150).optional(),
+    custom_responses: z.record(z.string(), z.any()).optional(),
+  })
+  .refine(v => Object.keys(v).length > 0, { message: 'No correctable fields supplied' })
+
 export const ValidatePinSchema = z.object({
   meeting_id: z.string().uuid('Invalid meeting ID'),
   meeting_pin: z.string().min(1, 'PIN is required'),

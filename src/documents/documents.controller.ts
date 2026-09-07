@@ -9,6 +9,7 @@ import {
 } from '../utils/response.js'
 import { UpdateTemplateSchema, RenderDocumentSchema, UpdateOrganizationSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
+import { getClientIp } from '../utils/ip.js'
 import type { HonoVariables } from '../types/index.js'
 import { supabaseAdmin } from '../config/supabase.js'
 
@@ -285,5 +286,55 @@ export const downloadGeneratedDocument = async (c: Context<{ Variables: HonoVari
     return ok(c, { download_url: publicUrlData.publicUrl })
   } catch {
     return notFound(c)
+  }
+}
+
+// POST /api/documents/register-pdf/:meetingId
+// One-click download of the attendance register, rendered from the very markup
+// the organiser is looking at.
+export const renderRegisterPdf = async (c: Context<{ Variables: HonoVariables }>) => {
+  try {
+    const user = c.get('user')
+
+    let body: any
+    try {
+      body = await c.req.json()
+    } catch (parseErr) {
+      console.error('[Register PDF] Could not read the request body:', parseErr)
+      return badRequest(c, 'The register document could not be read by the server (body parse failed).')
+    }
+
+    const html = typeof body?.html === 'string' ? body.html : ''
+    if (!html.trim()) return badRequest(c, 'No register content was supplied')
+
+    // Signatures and banners are inline data URIs, so these documents are large
+    // by nature. The ceiling exists to bound memory, not to be hit in practice.
+    const MAX_HTML_BYTES = 25_000_000
+    if (html.length > MAX_HTML_BYTES) {
+      return badRequest(
+        c,
+        `Register document is ${(html.length / 1_000_000).toFixed(1)}MB, over the ${MAX_HTML_BYTES / 1_000_000}MB limit. Try downloading staff and visitors separately.`
+      )
+    }
+
+    const { buffer } = await RendererService.renderRegisterPdf({
+      meetingId: c.req.param('meetingId') || '',
+      userId: user.id,
+      html,
+      landscape: body?.orientation !== 'portrait',
+    })
+
+    const ip = getClientIp(c)
+    writeAuditLog(user.id, 'report_generated', `Downloaded attendance register for meeting ${c.req.param('meetingId')}`, ip)
+
+    c.header('Content-Type', 'application/pdf')
+    c.header('Content-Disposition', `attachment; filename="attendance-register.pdf"`)
+    return c.body(new Uint8Array(buffer))
+  } catch (err: unknown) {
+    // The render depends on a headless Chromium being present; when it is not,
+    // the underlying message is the only useful diagnostic, so surface it.
+    console.error('[Register PDF] Render failed:', err)
+    const message = err instanceof Error ? err.message : 'Could not build the register PDF'
+    return badRequest(c, `Register PDF failed: ${message}`)
   }
 }

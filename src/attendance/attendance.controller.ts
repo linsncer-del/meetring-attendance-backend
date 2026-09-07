@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import * as AttendanceService from './attendance.service.js'
 import { ok, badRequest, notFound, serverError } from '../utils/response.js'
-import { SubmitAttendanceSchema, ValidatePinSchema } from '../utils/validators.js'
+import { SubmitAttendanceSchema, UpdateAttendanceSchema, ValidatePinSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
 import { getClientIp } from '../utils/ip.js'
 import type { HonoVariables } from '../types/index.js'
@@ -71,5 +71,39 @@ export const getByMeeting = async (c: Context<{ Variables: HonoVariables }>) => 
     return ok(c, data)
   } catch {
     return serverError(c)
+  }
+}
+
+// PATCH /api/attendance/:participantType/:attendanceId  (PROTECTED — organizer, HR, admin)
+export const updateRecord = async (c: Context<{ Variables: HonoVariables }>) => {
+  try {
+    const user = c.get('user')
+    const participantType = c.req.param('participantType')
+    if (participantType !== 'staff' && participantType !== 'visitor') {
+      return badRequest(c, 'Participant type must be staff or visitor')
+    }
+
+    const body = await c.req.json()
+    const parsed = UpdateAttendanceSchema.safeParse(body)
+    if (!parsed.success) return badRequest(c, parsed.error.issues[0].message)
+
+    const result = await AttendanceService.updateAttendanceRecord(
+      participantType,
+      c.req.param('attendanceId') || '',
+      parsed.data
+    )
+
+    const ip = getClientIp(c)
+    writeAuditLog(
+      user.id,
+      'attendance_corrected',
+      `Corrected ${participantType} record ${result.attendance_id} (${result.corrected_fields.join(', ')}) on meeting ${result.meeting_id}`,
+      ip
+    )
+
+    return ok(c, { message: 'Correction saved', ...result })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Could not save the correction'
+    return badRequest(c, message)
   }
 }

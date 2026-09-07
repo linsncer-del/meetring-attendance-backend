@@ -193,3 +193,57 @@ export const getPublicMeetingInfo = async (meetingId: string) => {
   if (error || !data) throw new Error('Meeting not found')
   return data
 }
+
+// ── Correct an existing attendance record ─────────────────────────────
+// Organisers and HR need to fix a misspelt name before the register is filed.
+// The signature and its timestamp are the evidence that someone attended, so
+// they are never touched here — only the descriptive fields around them.
+
+const CORRECTABLE_FIELDS = {
+  staff: ['full_name', 'designation', 'custom_responses'],
+  visitor: ['full_name', 'organization', 'position_title', 'custom_responses'],
+} as const
+
+export const updateAttendanceRecord = async (
+  participantType: 'staff' | 'visitor',
+  attendanceId: string,
+  input: Record<string, unknown>
+) => {
+  const table = participantType === 'staff' ? 'attendance_staff' : 'attendance_visitor'
+
+  const patch: Record<string, unknown> = {}
+  for (const field of CORRECTABLE_FIELDS[participantType]) {
+    if (input[field] !== undefined) patch[field] = input[field]
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error(`Those fields cannot be corrected on a ${participantType} record`)
+  }
+
+  const run = (body: Record<string, unknown>) =>
+    supabaseAdmin
+      .from(table)
+      .update(body)
+      .eq('attendance_id', attendanceId)
+      .select('attendance_id, meeting_id, full_name')
+      .single()
+
+  let { data, error } = await run(patch)
+
+  // Same fallback the submit path uses: custom_responses may not exist yet.
+  if (error && error.message?.includes('custom_responses')) {
+    const { custom_responses, ...rest } = patch
+    if (Object.keys(rest).length === 0) throw new Error(error.message)
+    ;({ data, error } = await run(rest))
+  }
+
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('Another attendee on this meeting is already recorded under that name.')
+    }
+    throw new Error(error.message)
+  }
+  if (!data) throw new Error('Attendance record not found')
+
+  return { ...data, corrected_fields: Object.keys(patch) }
+}

@@ -38,6 +38,7 @@ export type AuditAction =
   | 'attendance_opened'
   | 'attendance_closed'
   | 'attendance_submitted'
+  | 'attendance_corrected'
   | 'report_generated'
   | 'report_submitted_to_hr'
   | 'user_created'

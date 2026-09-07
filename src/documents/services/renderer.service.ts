@@ -7,7 +7,7 @@ import { supabaseAdmin } from '../../config/supabase.js'
 import { getTemplateFile } from './template.service.js'
 import { getMeetingDocumentData } from './documentData.service.js'
 import type { RenderOptions } from '../types.js'
-import { generatePdfFromHtml, buildReportHtml } from '../../utils/pdfReport.js'
+import { generatePdfFromHtml, generatePdfFromDocument, buildReportHtml } from '../../utils/pdfReport.js'
 
 export async function renderDocument(options: RenderOptions) {
   // Fetch the meeting/attendance data needed for every render, and (if a
@@ -188,4 +188,42 @@ export async function renderDocument(options: RenderOptions) {
   }
 
   return { downloadUrl, format: finalFormat, documentId }
+}
+
+// Renders the register exactly as the organiser previewed it. The client sends
+// the document it is displaying, so there is no second layout engine to drift
+// from the first. Stored for the audit trail, then returned to the caller.
+export async function renderRegisterPdf(options: {
+  meetingId: string
+  userId: string
+  html: string
+  landscape: boolean
+}) {
+  const buffer = await generatePdfFromDocument(options.html, options.landscape)
+
+  const documentId = randomUUID()
+  const filePath = `generated-docs/${documentId}.pdf`
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('kmtams-assets')
+    .upload(filePath, buffer, { contentType: 'application/pdf', upsert: true })
+
+  if (uploadError) {
+    console.warn('[Renderer Service] Register PDF archive failed:', uploadError.message)
+  } else {
+    // Audit trail only — never block the download on the bookkeeping.
+    try {
+      await supabaseAdmin.from('generated_documents').insert({
+        document_id: documentId,
+        meeting_id: options.meetingId,
+        generated_by: options.userId,
+        file_path: filePath,
+        format: 'pdf',
+      })
+    } catch (err) {
+      console.warn('[Renderer Service] generated_documents insert notice:', err)
+    }
+  }
+
+  return { buffer, documentId }
 }

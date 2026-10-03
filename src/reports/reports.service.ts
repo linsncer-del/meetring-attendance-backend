@@ -18,6 +18,17 @@ export const generateReport = async (meetingId: string, generatedBy: string) => 
     throw new Error('Cannot generate report: attendance has not been opened yet')
   }
 
+  // The upsert below writes status 'draft'; once a report is filed with HR it
+  // must not be silently pulled back to a draft by regenerating it.
+  const { data: existingReport } = await supabaseAdmin
+    .from('reports')
+    .select('status')
+    .eq('meeting_id', meetingId)
+    .maybeSingle()
+  if (existingReport && (existingReport.status === 'submitted_to_hr' || existingReport.status === 'archived')) {
+    throw new Error('This attendance report has already been submitted to HR')
+  }
+
   const { data: organizer, error: orgErr } = await supabaseAdmin
     .from('profiles')
     .select('*')

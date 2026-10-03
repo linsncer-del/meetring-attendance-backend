@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import * as AuthService from './Authservice.js'
-import { ok, badRequest, serverError } from '../utils/response.js'
+import { ok, badRequest, serverError, unauthorized } from '../utils/response.js'
 import { LoginSchema, ChangePasswordSchema, ResetPasswordRequestSchema, ResetPasswordWithTokenSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
 import { getClientIp } from '../utils/ip.js'
@@ -31,6 +31,26 @@ export const login = async (c: Context) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Login failed'
     return badRequest(c, message)
+  }
+}
+
+// ── POST /api/auth/refresh ────────────────────────────────────────────
+
+export const refresh = async (c: Context) => {
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const refreshToken = typeof body?.refresh_token === 'string' ? body.refresh_token.trim() : ''
+    if (!refreshToken) return unauthorized(c, 'No refresh token supplied')
+
+    const session = await AuthService.refreshSession(refreshToken)
+    return ok(c, {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+    })
+  } catch (err: unknown) {
+    // 401 tells the client to sign the user out instead of retrying.
+    return unauthorized(c, err instanceof Error ? err.message : 'Session expired. Please sign in again.')
   }
 }
 

@@ -24,6 +24,27 @@ export const signIn = async (email: string, password: string) => {
   }
 }
 
+// ── Refresh session ───────────────────────────────────────────────────
+// Swaps a refresh token for a new access token, so a "keep me signed in"
+// session survives the one-hour access token lifetime. A disabled account is
+// refused here too, so disabling a user ends a remembered session at its next
+// refresh rather than whenever the old token happens to expire.
+
+export const refreshSession = async (refreshToken: string) => {
+  const { data, error } = await supabaseAnon.auth.refreshSession({ refresh_token: refreshToken })
+  if (error || !data.session || !data.user) throw new Error('Session expired. Please sign in again.')
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', data.user.id)
+    .single()
+
+  if (!profile?.is_active) throw new Error('Account is disabled. Contact the ICT Administrator.')
+
+  return data.session
+}
+
 // ── Sign Out ──────────────────────────────────────────────────────────
 
 export const signOut = async (token: string) => {

@@ -1,12 +1,13 @@
 import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.middleware.js'
-import { login, logout, changePassword, me, requestPasswordReset, resetPasswordWithToken } from './Authcontroller.js'
+import { login, refresh, logout, changePassword, me, requestPasswordReset, resetPasswordWithToken } from './Authcontroller.js'
 import type { HonoVariables } from '../types/index.js'
 
 const authRouter = new Hono<{ Variables: HonoVariables }>()
 
 // Public routes
 authRouter.post('/login', login)
+authRouter.post('/refresh', refresh)
 authRouter.post('/reset-password-request', requestPasswordReset)
 authRouter.post('/reset-password', resetPasswordWithToken)
 

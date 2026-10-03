@@ -1,12 +1,27 @@
 import { Resend } from 'resend'
+import { readFileSync } from 'node:fs'
 import 'dotenv/config'
 
 const apiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS || ''
 const resend = new Resend(apiKey)
 
-const fromName = process.env.SMTP_FROM_NAME || 'Getkeja'
+const fromName = process.env.SMTP_FROM_NAME || 'KeNHA KMTAMS'
 const fromEmail = process.env.SMTP_FROM_EMAIL || 'no-reply@getkeja.online'
 const FROM = process.env.SMTP_FROM || `${fromName} <${fromEmail}>`
+
+const frontendUrl = () => process.env.FRONTEND_URL || 'http://localhost:5173'
+
+// ── Letterhead logo ──────────────────────────────────────────────────
+// Sent as an inline (cid:) attachment rather than linked by URL, so it shows
+// even when the frontend is on localhost or behind a firewall. Resolved from
+// this file so it works from both src/ (dev) and dist/ (build).
+const LOGO_CID = 'kenha-logo'
+let logoContent: Buffer | null = null
+try {
+  logoContent = readFileSync(new URL('../../assets/kenha_email_logo.jpg', import.meta.url))
+} catch {
+  console.warn('[Mailer] assets/kenha_email_logo.jpg not found — emails will use a text header.')
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -18,12 +33,16 @@ export interface MailOptions {
 }
 
 export const sendMail = async (options: MailOptions): Promise<void> => {
+  const usesLogo = logoContent && options.html.includes(`cid:${LOGO_CID}`)
   const { error } = await resend.emails.send({
     from: FROM,
     to: Array.isArray(options.to) ? options.to : [options.to],
     subject: options.subject,
     html: options.html,
     text: options.text,
+    attachments: usesLogo
+      ? [{ filename: 'kenha-logo.jpg', content: logoContent!, contentType: 'image/jpeg', contentId: LOGO_CID }]
+      : undefined,
   })
 
   if (error) {
@@ -32,52 +51,140 @@ export const sendMail = async (options: MailOptions): Promise<void> => {
   }
 }
 
+// Names and titles are typed by users, so they are escaped before going into HTML.
+const esc = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+// ── Layout building blocks ───────────────────────────────────────────
+// Table-based with inline styles: that is what Outlook and Gmail render reliably.
+
+const FONT = "Arial, 'Helvetica Neue', Helvetica, sans-serif"
+
+const detailsTable = (rows: Array<[string, string]>) => `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 20px 0; border: 1px solid #e5e7eb; border-left: 4px solid #f9d616; border-collapse: separate; border-radius: 4px;">
+    ${rows
+      .map(
+        ([label, value], i) => `
+    <tr>
+      <td style="padding: 10px 16px; ${i ? 'border-top: 1px solid #f1f5f9;' : ''} font-family: ${FONT}; font-size: 13px; color: #6b7280; width: 38%; vertical-align: top;">${label}</td>
+      <td style="padding: 10px 16px; ${i ? 'border-top: 1px solid #f1f5f9;' : ''} font-family: ${FONT}; font-size: 14px; color: #111827; font-weight: bold; vertical-align: top;">${value}</td>
+    </tr>`
+      )
+      .join('')}
+  </table>`
+
+const button = (href: string, label: string) => `
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0 8px;">
+    <tr>
+      <td style="background: #111111; border-radius: 4px;">
+        <a href="${href}" style="display: inline-block; padding: 13px 28px; font-family: ${FONT}; font-size: 14px; font-weight: bold; color: #f9d616; text-decoration: none; letter-spacing: 0.3px;">${label}</a>
+      </td>
+    </tr>
+  </table>`
+
+const paragraph = (html: string) =>
+  `<p style="margin: 0 0 14px; font-family: ${FONT}; font-size: 14px; line-height: 1.6; color: #374151;">${html}</p>`
+
+const layout = (opts: { preheader: string; heading: string; body: string }) => {
+  const header = logoContent
+    ? `<img src="cid:${LOGO_CID}" width="520" alt="Kenya National Highways Authority" style="display: block; width: 100%; max-width: 520px; height: auto; border: 0;" />`
+    : `<div style="font-family: ${FONT}; font-size: 20px; font-weight: bold; color: #111111;">Kenya National Highways Authority</div>`
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${opts.heading}</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f3f4f6;">
+  <div style="display: none; max-height: 0; overflow: hidden; opacity: 0;">${opts.preheader}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background: #f3f4f6;">
+    <tr>
+      <td align="center" style="padding: 28px 12px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width: 100%; max-width: 600px; background: #ffffff; border: 1px solid #e5e7eb;">
+          <tr>
+            <td style="padding: 28px 40px 20px;">${header}</td>
+          </tr>
+          <tr>
+            <td style="height: 4px; line-height: 4px; font-size: 0; background: #f9d616;">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 40px 12px;">
+              <h1 style="margin: 0 0 18px; font-family: ${FONT}; font-size: 20px; line-height: 1.3; color: #111111;">${opts.heading}</h1>
+              ${opts.body}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 40px 32px;">
+              <p style="margin: 0; font-family: ${FONT}; font-size: 14px; line-height: 1.6; color: #374151;">
+                Regards,<br />
+                <strong>KeNHA Meeting &amp; Training Attendance System</strong>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background: #111111; padding: 20px 40px;">
+              <p style="margin: 0 0 6px; font-family: ${FONT}; font-size: 12px; font-weight: bold; color: #f9d616;">Quality Highways, Better Connections</p>
+              <p style="margin: 0; font-family: ${FONT}; font-size: 11px; line-height: 1.6; color: #d1d5db;">
+                Kenya National Highways Authority &bull; Barabara Plaza, Block A &amp; C, JKIA, Off Airport South Road<br />
+                P.O. Box 49712 - 00100 Nairobi &bull; Tel 020 4954000 / 0700 423 606 &bull; www.kenha.co.ke
+              </p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin: 14px 0 0; font-family: ${FONT}; font-size: 11px; color: #9ca3af;">
+          This is an automated message from KMTAMS. Please do not reply to this email.<br />
+          &copy; ${new Date().getFullYear()} Kenya National Highways Authority
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+}
 
 // ── Email Templates ───────────────────────────────────────────────────
 
 export const templates = {
   welcomeNewUser: (name: string, email: string, tempPassword: string) => ({
     subject: 'Welcome to KMTAMS — Your Account Details',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
-        <div style="background: #003087; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h1 style="color: #fff; margin: 0; font-size: 22px;">KeNHA KMTAMS</h1>
-          <p style="color: #cce0ff; margin: 5px 0 0;">Meeting & Training Attendance System</p>
-        </div>
-        <div style="background: #fff; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e0e0e0;">
-          <h2 style="color: #003087;">Welcome, ${name}!</h2>
-          <p>Your KMTAMS account has been created. Please use the credentials below to log in:</p>
-          <div style="background: #f0f4ff; padding: 15px; border-radius: 6px; margin: 20px 0;">
-            <p style="margin: 5px 0;"><strong>Email:</strong> ${email}</p>
-            <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background: #e0e8ff; padding: 2px 6px; border-radius: 4px;">${tempPassword}</code></p>
-          </div>
-          <p style="color: #d32f2f;"><strong>You will be required to change your password on first login.</strong></p>
-          <a href="${process.env.FRONTEND_URL}/login" style="display: inline-block; background: #003087; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 10px;">Login to KMTAMS</a>
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e0e0e0;">
-          <p style="color: #888; font-size: 12px;">Kenya National Highways Authority &copy; ${new Date().getFullYear()}</p>
-        </div>
-      </div>
-    `,
+    html: layout({
+      preheader: 'Your KMTAMS account has been created.',
+      heading: 'Your KMTAMS Account Is Ready',
+      body: `
+        ${paragraph(`Dear ${esc(name)},`)}
+        ${paragraph('An account has been created for you on the KeNHA Meeting &amp; Training Attendance Management System (KMTAMS). Please use the credentials below to sign in.')}
+        ${detailsTable([
+          ['Email address', esc(email)],
+          ['Temporary password', `<span style="font-family: 'Courier New', monospace; letter-spacing: 1px;">${esc(tempPassword)}</span>`],
+        ])}
+        ${paragraph('For your security, you will be asked to set a new password the first time you sign in.')}
+        ${button(`${frontendUrl()}/login`, 'Sign In to KMTAMS')}
+      `,
+    }),
   }),
 
   passwordReset: (name: string, tempPassword: string) => ({
-    subject: 'KMTAMS — Password Reset',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
-        <div style="background: #003087; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h1 style="color: #fff; margin: 0; font-size: 22px;">KeNHA KMTAMS</h1>
-        </div>
-        <div style="background: #fff; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e0e0e0;">
-          <h2 style="color: #003087;">Password Reset — ${name}</h2>
-          <p>Your password has been reset by an administrator.</p>
-          <div style="background: #f0f4ff; padding: 15px; border-radius: 6px; margin: 20px 0;">
-            <p style="margin: 5px 0;"><strong>New Temporary Password:</strong> <code style="background: #e0e8ff; padding: 2px 6px; border-radius: 4px;">${tempPassword}</code></p>
-          </div>
-          <p style="color: #d32f2f;"><strong>You must change this password on your next login.</strong></p>
-          <a href="${process.env.FRONTEND_URL}/login" style="display: inline-block; background: #003087; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 10px;">Login Now</a>
-        </div>
-      </div>
-    `,
+    subject: 'KMTAMS — Your Password Has Been Reset',
+    html: layout({
+      preheader: 'Your KMTAMS password has been reset by an administrator.',
+      heading: 'Password Reset',
+      body: `
+        ${paragraph(`Dear ${esc(name)},`)}
+        ${paragraph('Your KMTAMS password has been reset by a system administrator. Please use the temporary password below to sign in.')}
+        ${detailsTable([
+          ['Temporary password', `<span style="font-family: 'Courier New', monospace; letter-spacing: 1px;">${esc(tempPassword)}</span>`],
+        ])}
+        ${paragraph('You will be asked to choose a new password when you sign in. If you did not expect this change, please contact ICT immediately.')}
+        ${button(`${frontendUrl()}/login`, 'Sign In to KMTAMS')}
+      `,
+    }),
   }),
 
   reportSubmittedToHR: (
@@ -87,61 +194,56 @@ export const templates = {
     totalAttendance: number,
     reportId: string
   ) => ({
-    subject: `KMTAMS — New Attendance Report: ${meetingTitle}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
-        <div style="background: #003087; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h1 style="color: #fff; margin: 0; font-size: 22px;">KeNHA KMTAMS</h1>
-          <p style="color: #cce0ff; margin: 5px 0 0;">Attendance Report Submitted</p>
-        </div>
-        <div style="background: #fff; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e0e0e0;">
-          <h2 style="color: #003087;">Dear ${hrName},</h2>
-          <p>A new attendance report has been submitted for your review.</p>
-          <div style="background: #f0f4ff; padding: 15px; border-radius: 6px; margin: 20px 0;">
-            <p style="margin: 5px 0;"><strong>Meeting:</strong> ${meetingTitle}</p>
-            <p style="margin: 5px 0;"><strong>Organizer:</strong> ${organizer}</p>
-            <p style="margin: 5px 0;"><strong>Total Attendance:</strong> ${totalAttendance}</p>
-          </div>
-          <a href="${process.env.FRONTEND_URL}/hr/reports/${reportId}" style="display: inline-block; background: #003087; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 10px;">View Report</a>
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e0e0e0;">
-          <p style="color: #888; font-size: 12px;">Kenya National Highways Authority &copy; ${new Date().getFullYear()}</p>
-        </div>
-      </div>
-    `,
+    subject: `KMTAMS — Attendance Report Submitted: ${meetingTitle}`,
+    html: layout({
+      preheader: `An attendance report for ${esc(meetingTitle)} is awaiting your review.`,
+      heading: 'Attendance Report Submitted for Review',
+      body: `
+        ${paragraph(`Dear ${esc(hrName)},`)}
+        ${paragraph('An attendance report has been submitted to Human Resources and is awaiting your review.')}
+        ${detailsTable([
+          ['Meeting / training', esc(meetingTitle)],
+          ['Submitted by', esc(organizer)],
+          ['Total attendance', esc(totalAttendance)],
+        ])}
+        ${button(`${frontendUrl()}/hr/reports/${encodeURIComponent(reportId)}`, 'Review Report')}
+      `,
+    }),
   }),
 
   attendanceOpened: (organizerName: string, meetingTitle: string) => ({
     subject: `KMTAMS — Attendance Opened: ${meetingTitle}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: #003087; padding: 20px; border-radius: 8px; text-align: center;">
-          <h1 style="color: #fff; margin: 0; font-size: 22px;">KeNHA KMTAMS</h1>
-        </div>
-        <div style="background: #fff; padding: 30px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 10px;">
-          <p>Dear <strong>${organizerName}</strong>,</p>
-          <p>Attendance for <strong>${meetingTitle}</strong> has been <span style="color: #1b7e1b; font-weight: bold;">OPENED</span>.</p>
-          <p>Participants can now scan the QR code or use the attendance link to register.</p>
-        </div>
-      </div>
-    `,
+    html: layout({
+      preheader: `Attendance for ${esc(meetingTitle)} is now open.`,
+      heading: 'Attendance Register Opened',
+      body: `
+        ${paragraph(`Dear ${esc(organizerName)},`)}
+        ${paragraph(`The attendance register for <strong>${esc(meetingTitle)}</strong> is now <strong style="color: #15803d;">open</strong>. Participants can sign in by scanning the meeting QR code or following the attendance link, then entering the meeting PIN.`)}
+        ${detailsTable([
+          ['Meeting / training', esc(meetingTitle)],
+          ['Status', '<span style="color: #15803d;">Open for sign-in</span>'],
+        ])}
+        ${button(`${frontendUrl()}/meetings`, 'View Live Attendance')}
+      `,
+    }),
   }),
 
   attendanceClosed: (organizerName: string, meetingTitle: string, total: number) => ({
     subject: `KMTAMS — Attendance Closed: ${meetingTitle}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: #003087; padding: 20px; border-radius: 8px; text-align: center;">
-          <h1 style="color: #fff; margin: 0; font-size: 22px;">KeNHA KMTAMS</h1>
-        </div>
-        <div style="background: #fff; padding: 30px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 10px;">
-          <p>Dear <strong>${organizerName}</strong>,</p>
-          <p>Attendance for <strong>${meetingTitle}</strong> has been <span style="color: #d32f2f; font-weight: bold;">CLOSED</span>.</p>
-          <p><strong>Total attendees recorded: ${total}</strong></p>
-          <p>You can now generate and download the attendance report from KMTAMS.</p>
-          <a href="${process.env.FRONTEND_URL}/meetings" style="display: inline-block; background: #003087; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 10px;">Go to My Meetings</a>
-        </div>
-      </div>
-    `,
+    html: layout({
+      preheader: `Attendance for ${esc(meetingTitle)} has closed with ${esc(total)} sign-ins.`,
+      heading: 'Attendance Register Closed',
+      body: `
+        ${paragraph(`Dear ${esc(organizerName)},`)}
+        ${paragraph(`The attendance register for <strong>${esc(meetingTitle)}</strong> is now <strong style="color: #b91c1c;">closed</strong> and no further sign-ins will be accepted.`)}
+        ${detailsTable([
+          ['Meeting / training', esc(meetingTitle)],
+          ['Total attendees recorded', esc(total)],
+        ])}
+        ${paragraph('You can now review the register, make any corrections and download the official attendance register.')}
+        ${button(`${frontendUrl()}/meetings`, 'Go to My Meetings')}
+      `,
+    }),
   }),
 
   multiDayAttendanceReminder: (
@@ -154,41 +256,23 @@ export const templates = {
     venue?: string
   ) => ({
     subject: `Attendance Reminder: ${meetingTitle} — ${dayLabel} (${dateStr})`,
-    html: `
-      <div style="font-family: Arial, 'Helvetica Neue', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f8fafc;">
-        <div style="background: #1e3a8a; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
-          <h1 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">Kenya National Highways Authority</h1>
-          <p style="color: #fde047; margin: 6px 0 0; font-size: 13px; font-weight: bold;">KeNHA Meeting &amp; Training Attendance System (KMTAMS)</p>
-        </div>
-        <div style="background: #ffffff; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
-          <h2 style="color: #0f172a; font-size: 18px; margin-top: 0;">Daily Attendance Sign-In Reminder</h2>
-          <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Dear <strong>${participantName || 'Participant'}</strong>,<br/>
-            This is a reminder to sign your daily attendance for <strong>${meetingTitle}</strong> for <strong>${dayLabel} (${dateStr})</strong>.
-          </p>
-          <div style="background: #f1f5f9; border-left: 4px solid #2563eb; padding: 16px; border-radius: 6px; margin: 20px 0;">
-            <p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Meeting:</strong> ${meetingTitle}</p>
-            <p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Session Day:</strong> ${dayLabel} &mdash; ${dateStr}</p>
-            ${venue ? `<p style="margin: 4px 0; font-size: 13px; color: #1e293b;"><strong>Venue:</strong> ${venue}</p>` : ''}
-            <p style="margin: 8px 0 4px; font-size: 14px; color: #1e293b;">
-              <strong>Meeting 6-Digit PIN:</strong> 
-              <span style="display: inline-block; background: #e0e7ff; color: #1e40af; font-weight: 800; font-size: 16px; padding: 2px 8px; border-radius: 4px; letter-spacing: 2px; margin-left: 6px;">${pin}</span>
-            </p>
-          </div>
-          <div style="text-align: center; margin: 28px 0;">
-            <a href="${attendanceUrl}" style="display: inline-block; background: #2563eb; color: #ffffff; font-weight: 700; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-size: 14px; box-shadow: 0 2px 4px rgba(37,99,235,0.3);">
-              Sign Today's Attendance Register &rarr;
-            </a>
-          </div>
-          <p style="font-size: 12px; color: #64748b; line-height: 1.4; text-align: center;">
-            You can also open the link on your mobile phone or tablet to provide your digital signature.
-          </p>
-          <hr style="margin: 24px 0 16px; border: none; border-top: 1px solid #e2e8f0;">
-          <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">
-            Kenya National Highways Authority &copy; ${new Date().getFullYear()} &bull; Quality Highways, Better Connections
-          </p>
-        </div>
-      </div>
-    `,
+    html: layout({
+      preheader: `Please sign today's attendance for ${esc(meetingTitle)}.`,
+      heading: 'Daily Attendance Sign-In Reminder',
+      body: `
+        ${paragraph(`Dear ${esc(participantName || 'Participant')},`)}
+        ${paragraph(`This is a reminder to sign the attendance register for <strong>${esc(meetingTitle)}</strong> for <strong>${esc(dayLabel)} (${esc(dateStr)})</strong>.`)}
+        ${detailsTable([
+          ['Meeting / training', esc(meetingTitle)],
+          ['Session day', `${esc(dayLabel)} &mdash; ${esc(dateStr)}`],
+          ...(venue ? ([['Venue', esc(venue)]] as Array<[string, string]>) : []),
+          ['Meeting PIN', `<span style="font-family: 'Courier New', monospace; font-size: 18px; letter-spacing: 4px;">${esc(pin)}</span>`],
+        ])}
+        ${button(attendanceUrl, 'Sign Today&rsquo;s Attendance')}
+        <p style="margin: 8px 0 0; font-family: ${FONT}; font-size: 12px; line-height: 1.5; color: #6b7280;">
+          You can open this link on your phone or tablet to add your signature.
+        </p>
+      `,
+    }),
   }),
 }

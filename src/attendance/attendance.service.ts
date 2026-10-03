@@ -36,6 +36,22 @@ export const validateMeetingPin = async (
   return { valid: true, message: 'PIN verified successfully', meetingTitle: meeting.title }
 }
 
+// Older meetings keep their form config in a comment inside the description
+// rather than the form_config column, so check both.
+const isMultiDayMeeting = (meeting: { form_config?: any; description?: string | null }): boolean => {
+  let config = meeting.form_config
+  if (typeof config === 'string') {
+    try { config = JSON.parse(config) } catch { config = null }
+  }
+  if (!config && meeting.description) {
+    const match = meeting.description.match(/<!--KMTAMS_FORM_CONFIG:([\s\S]*?)-->/)
+    if (match) {
+      try { config = JSON.parse(match[1]) } catch { config = null }
+    }
+  }
+  return Boolean(config?.isMultiDay)
+}
+
 // ── Submit attendance (PUBLIC — called by participants) ───────────────
 
 export const submitAttendance = async (
@@ -47,7 +63,7 @@ export const submitAttendance = async (
   // 1. Fetch and validate meeting
   const { data: meeting, error: meetingErr } = await supabaseAdmin
     .from('meetings')
-    .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time, form_config')
+    .select('meeting_pin, attendance_status, attendance_open_time, attendance_close_time, form_config, description')
     .eq('meeting_id', meeting_id)
     .single()
 
@@ -70,6 +86,23 @@ export const submitAttendance = async (
   const allowVisitors = (meeting.form_config as any)?.allowVisitors !== false
   if (input.participant_type === 'visitor' && !allowVisitors) {
     throw new Error('External visitor sign-in is disabled for this meeting.')
+  }
+
+  // 3c. A single-day meeting takes one signature per person. The database only
+  // enforces one per person per day (so multi-day meetings work), which would
+  // otherwise let someone sign again the day after and appear twice.
+  if (!isMultiDayMeeting(meeting)) {
+    const table = input.participant_type === 'staff' ? 'attendance_staff' : 'attendance_visitor'
+    // ilike for a case-insensitive match; escape its wildcards so a name is matched literally.
+    const namePattern = input.full_name.trim().replace(/[\\%_]/g, c => `\\${c}`)
+    const { count } = await supabaseAdmin
+      .from(table)
+      .select('attendance_id', { count: 'exact', head: true })
+      .eq('meeting_id', meeting_id)
+      .ilike('full_name', namePattern)
+    if (count && count > 0) {
+      throw new Error('You have already registered attendance for this meeting.')
+    }
   }
 
   // 4. Insert into the appropriate table

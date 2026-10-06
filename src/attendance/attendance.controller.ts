@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import * as AttendanceService from './attendance.service.js'
 import { ok, badRequest, notFound, serverError } from '../utils/response.js'
-import { SubmitAttendanceSchema, UpdateAttendanceSchema, ValidatePinSchema } from '../utils/validators.js'
+import { SubmitAttendanceSchema, UpdateAttendanceSchema, ValidatePinSchema, SignableDatesSchema } from '../utils/validators.js'
 import { writeAuditLog } from '../middleware/audit.middleware.js'
 import { getClientIp } from '../utils/ip.js'
 import type { HonoVariables } from '../types/index.js'
@@ -21,6 +21,21 @@ export const validatePin = async (c: Context) => {
     return ok(c, result)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'PIN verification failed'
+    return badRequest(c, message)
+  }
+}
+
+// POST /api/attendance/signable-dates  (PUBLIC — multi-day day picker)
+// The session days a participant can still sign for: past or today, and not
+// signed yet. Requires the PIN, like the form itself.
+export const signableDates = async (c: Context) => {
+  try {
+    const body = await c.req.json()
+    const parsed = SignableDatesSchema.safeParse(body)
+    if (!parsed.success) return badRequest(c, parsed.error.issues[0].message)
+    return ok(c, await AttendanceService.getSignableDates(parsed.data))
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Could not load the meeting days'
     return badRequest(c, message)
   }
 }

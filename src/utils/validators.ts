@@ -93,6 +93,8 @@ export const SubmitStaffAttendanceSchema = z.object({
   department_id: z.string().uuid().optional().nullable(),
   signature_data: z.string().min(1, 'Digital signature is required'),
   custom_responses: z.record(z.string(), z.any()).optional(),
+  // Multi-day meetings: the session days ("DD/MM/YYYY") this signature is for.
+  session_dates: z.array(z.string().max(20)).max(60).optional(),
 })
 
 // ── Attendance — Visitor ──────────────────────────────────────────────
@@ -107,6 +109,8 @@ export const SubmitVisitorAttendanceSchema = z.object({
   purpose: z.enum(['guest', 'consultant', 'contractor', 'partner', 'trainer', 'auditor', 'other']).optional().default('guest'),
   signature_data: z.string().min(1, 'Digital signature is required'),
   custom_responses: z.record(z.string(), z.any()).optional(),
+  // Multi-day meetings: the session days ("DD/MM/YYYY") this signature is for.
+  session_dates: z.array(z.string().max(20)).max(60).optional(),
 })
 
 export const SubmitAttendanceSchema = z.discriminatedUnion('participant_type', [
@@ -127,6 +131,13 @@ export const UpdateAttendanceSchema = z
     custom_responses: z.record(z.string(), z.any()).optional(),
   })
   .refine(v => Object.keys(v).length > 0, { message: 'No correctable fields supplied' })
+
+export const SignableDatesSchema = z.object({
+  meeting_id: z.string().uuid('Invalid meeting ID'),
+  meeting_pin: z.string().min(1, 'PIN is required'),
+  full_name: z.string().max(150).default(''),
+  participant_type: z.enum(['staff', 'visitor']),
+})
 
 export const ValidatePinSchema = z.object({
   meeting_id: z.string().uuid('Invalid meeting ID'),

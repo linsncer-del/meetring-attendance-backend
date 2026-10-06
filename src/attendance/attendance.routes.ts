@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { authMiddleware } from '../middleware/auth.middleware.js'
 import { attendanceRateLimit } from '../middleware/rateLimit.middleware.js'
 import { requireRole } from '../middleware/role.middleware.js'
-import { getMeetingInfo, submit, getByMeeting, validatePin, updateRecord } from './attendance.controller.js'
+import { getMeetingInfo, signableDates, submit, getByMeeting, validatePin, updateRecord } from './attendance.controller.js'
 import type { HonoVariables } from '../types/index.js'
 
 const attendanceRouter = new Hono<{ Variables: HonoVariables }>()
@@ -13,6 +13,9 @@ attendanceRouter.post('/validate-pin', attendanceRateLimit, validatePin)
 
 // Get meeting info for the public attendance page
 attendanceRouter.get('/meeting-info/:meetingId', getMeetingInfo)
+
+// Days a participant can still sign for, on a multi-day meeting
+attendanceRouter.post('/signable-dates', signableDates) // general API limit only: a whole room may share one IP
 
 // Submit attendance (rate-limited, no auth)
 attendanceRouter.post('/submit', attendanceRateLimit, submit)

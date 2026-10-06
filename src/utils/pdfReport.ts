@@ -310,6 +310,8 @@ const launchBrowser = async () => {
 // and build tools (tsx/esbuild in dev) inject helpers into compiled functions
 // that do not exist inside the page. It runs with page scripts disabled.
 export const REPAGINATE_REGISTER_JS = `(() => {
+  // No sheet lists more than 8 people (MAX_ROWS_PER_SHEET in registerDocument.ts).
+  const MAX_ROWS = 8;
   const sheets = () => Array.from(document.querySelectorAll('.kenha-page-wrapper'));
   const bodyOf = (sheet) => sheet.querySelector('.register-table-slot tbody');
   // Tables are styled to fill their slot (height: 100%), so they never report
@@ -348,7 +350,7 @@ export const REPAGINATE_REGISTER_JS = `(() => {
     const sheet = sheets()[i];
     const body = bodyOf(sheet);
     if (!body) continue;
-    while (overflows(sheet) && body.rows.length > 1 && guard++ < 10000) {
+    while ((overflows(sheet) || body.rows.length > MAX_ROWS) && body.rows.length > 1 && guard++ < 10000) {
       const last = body.rows[body.rows.length - 1];
       if (last.hasAttribute('data-blank-row')) { last.remove(); continue; }
       const next = sheets()[i + 1] || addSheetAfter(sheet);
@@ -365,7 +367,7 @@ export const REPAGINATE_REGISTER_JS = `(() => {
   const template = lastBody && lastBody.rows[lastBody.rows.length - 1];
   if (lastSheet && lastBody && template) {
     const numberOf = (row) => parseInt(((row.querySelector('td') || {}).textContent || '').replace(/\D/g, ''), 10) || 0;
-    for (let n = 0; n < 200 && !overflows(lastSheet); n++) {
+    for (let n = 0; n < 200 && !overflows(lastSheet) && lastBody.rows.length < MAX_ROWS; n++) {
       const blank = template.cloneNode(true);
       blank.setAttribute('data-blank-row', '1');
       Array.from(blank.cells).forEach((cell, idx) => {

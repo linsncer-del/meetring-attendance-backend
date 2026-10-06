@@ -302,6 +302,98 @@ const launchBrowser = async () => {
   })
 }
 
+// Moves register rows that do not fit above a sheet's footer onto the next
+// sheet, measuring with this renderer's own fonts (which differ from the
+// organiser's browser — there is no Times New Roman here). Server-owned copy of
+// repaginateRegister in the frontend's registerDocument.ts; keep the two in
+// step. Kept as plain JavaScript text: page.evaluate serialises a function,
+// and build tools (tsx/esbuild in dev) inject helpers into compiled functions
+// that do not exist inside the page. It runs with page scripts disabled.
+export const REPAGINATE_REGISTER_JS = `(() => {
+  const sheets = () => Array.from(document.querySelectorAll('.kenha-page-wrapper'));
+  const bodyOf = (sheet) => sheet.querySelector('.register-table-slot tbody');
+  // Tables are styled to fill their slot (height: 100%), so they never report
+  // less than the slot and keep stretching their rows once grown. Measure at
+  // natural height while rearranging; the fill is restored at the end.
+  const tables = () => Array.from(document.querySelectorAll('.register-table-slot table'));
+  // The slot is a flex container, which would also stretch the table. Row
+  // heights left by an earlier pass (the editor's) are cleared first.
+  tables().forEach((t) => {
+    t.style.setProperty('height', 'auto', 'important');
+    t.style.setProperty('align-self', 'flex-start', 'important');
+    Array.from(t.rows).forEach((row) => row.style.removeProperty('height'));
+  });
+  const overflows = (sheet) => {
+    const slot = sheet.querySelector('.register-table-slot');
+    const table = slot && slot.querySelector('table');
+    if (!slot || !table) return false;
+    return table.getBoundingClientRect().height > slot.getBoundingClientRect().height + 1;
+  };
+  const addSheetAfter = (sheet) => {
+    const copy = sheet.cloneNode(true);
+    const body = bodyOf(copy);
+    if (body) body.innerHTML = '';
+    copy.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+    const title = copy.querySelector('.kenha-register-title');
+    if (title && !/\(CONTINUED\)/.test(title.textContent || '')) {
+      title.textContent = (title.textContent || '').trim() + ' (CONTINUED)';
+    }
+    sheet.after(copy);
+    return copy;
+  };
+
+  let moved = 0;
+  let guard = 0;
+  for (let i = 0; i < sheets().length && guard < 10000; i++) {
+    const sheet = sheets()[i];
+    const body = bodyOf(sheet);
+    if (!body) continue;
+    while (overflows(sheet) && body.rows.length > 1 && guard++ < 10000) {
+      const last = body.rows[body.rows.length - 1];
+      if (last.hasAttribute('data-blank-row')) { last.remove(); continue; }
+      const next = sheets()[i + 1] || addSheetAfter(sheet);
+      const nextBody = bodyOf(next);
+      if (!nextBody) break;
+      nextBody.insertBefore(last, nextBody.firstChild);
+      moved++;
+    }
+  }
+
+  const all = sheets();
+  const lastSheet = all[all.length - 1];
+  const lastBody = lastSheet && bodyOf(lastSheet);
+  const template = lastBody && lastBody.rows[lastBody.rows.length - 1];
+  if (lastSheet && lastBody && template) {
+    const numberOf = (row) => parseInt(((row.querySelector('td') || {}).textContent || '').replace(/\D/g, ''), 10) || 0;
+    for (let n = 0; n < 200 && !overflows(lastSheet); n++) {
+      const blank = template.cloneNode(true);
+      blank.setAttribute('data-blank-row', '1');
+      Array.from(blank.cells).forEach((cell, idx) => {
+        cell.innerHTML = idx === 0 ? (numberOf(lastBody.rows[lastBody.rows.length - 1]) + 1) + '.' : '';
+      });
+      lastBody.appendChild(blank);
+      if (overflows(lastSheet)) { blank.remove(); break; }
+    }
+  }
+
+  // Fill each sheet: share its leftover height between its body rows, so the
+  // table ends exactly at the gap above the footer (explicit pixel heights,
+  // not a percentage-height table, which can overrun the slot).
+  for (const sheet of sheets()) {
+    const slot = sheet.querySelector('.register-table-slot');
+    const table = slot && slot.querySelector('table');
+    const body = bodyOf(sheet);
+    if (!slot || !table || !body || body.rows.length === 0) continue;
+    const spare = slot.getBoundingClientRect().height - table.getBoundingClientRect().height - 1;
+    if (spare <= 0) continue;
+    const extra = spare / body.rows.length;
+    Array.from(body.rows).forEach((row) => {
+      row.style.height = (row.getBoundingClientRect().height + extra).toFixed(2) + 'px';
+    });
+  }
+  return moved;
+})()`
+
 // Renders a complete, self-contained HTML document exactly as authored: the
 // page box comes from the document's own @page rule, not from margins imposed
 // here, so a register laid out in the browser prints identically.
@@ -322,6 +414,10 @@ export const generatePdfFromDocument = async (
     await page.setOfflineMode(true)
 
     await page.setContent(html, { waitUntil: 'load', timeout: 20000 })
+    // Fit rows to this renderer's real text sizes before printing, so none
+    // end up hidden behind a sheet's footer.
+    await page.emulateMediaType('print')
+    await page.evaluate(REPAGINATE_REGISTER_JS)
     const pdfBuffer = await page.pdf({
       preferCSSPageSize: true,
       landscape,

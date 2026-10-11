@@ -30,6 +30,8 @@ export interface MailOptions {
   subject: string
   html: string
   text?: string
+  // Where replies go, e.g. a forwarded question's asker
+  replyTo?: string
 }
 
 export const sendMail = async (options: MailOptions): Promise<void> => {
@@ -40,6 +42,7 @@ export const sendMail = async (options: MailOptions): Promise<void> => {
     subject: options.subject,
     html: options.html,
     text: options.text,
+    replyTo: options.replyTo,
     attachments: usesLogo
       ? [{ filename: 'kenha-logo.jpg', content: logoContent!, contentType: 'image/jpeg', contentId: LOGO_CID }]
       : undefined,
@@ -242,6 +245,51 @@ export const templates = {
         ])}
         ${paragraph('You can now review the register, make any corrections and download the official attendance register.')}
         ${button(`${frontendUrl()}/meetings`, 'Go to My Meetings')}
+      `,
+    }),
+  }),
+
+  qnaAnswer: (askerName: string | null, meetingTitle: string, question: string, answer: string, answeredBy: string) => ({
+    subject: `Answer to your question — ${meetingTitle}`,
+    html: layout({
+      preheader: `Your question at ${esc(meetingTitle)} has been answered.`,
+      heading: 'Your Question Has Been Answered',
+      body: `
+        ${paragraph(`Dear ${esc(askerName || 'Participant')},`)}
+        ${paragraph(`Thank you for your question during <strong>${esc(meetingTitle)}</strong>. Here is the response.`)}
+        ${detailsTable([
+          ['Your question', `<span style="font-weight: normal; white-space: pre-wrap;">${esc(question)}</span>`],
+          ['Answer', `<span style="font-weight: normal; white-space: pre-wrap;">${esc(answer)}</span>`],
+          ['Answered by', esc(answeredBy)],
+        ])}
+        ${paragraph('If you have a follow-up question, you can reply to the meeting organiser.')}
+      `,
+    }),
+  }),
+
+  qnaForward: (
+    recipientNote: string | null,
+    meetingTitle: string,
+    question: string,
+    askerName: string | null,
+    askerEmail: string | null,
+    forwardedBy: string
+  ) => ({
+    subject: `Question forwarded to you — ${meetingTitle}`,
+    html: layout({
+      preheader: `${esc(forwardedBy)} forwarded a question from ${esc(meetingTitle)} for you to answer.`,
+      heading: 'A Question Has Been Forwarded to You',
+      body: `
+        ${paragraph(`<strong>${esc(forwardedBy)}</strong> has forwarded a question raised during <strong>${esc(meetingTitle)}</strong> for you to answer.`)}
+        ${recipientNote ? paragraph(`<em>Note from ${esc(forwardedBy)}:</em> ${esc(recipientNote)}`) : ''}
+        ${detailsTable([
+          ['Question', `<span style="font-weight: normal; white-space: pre-wrap;">${esc(question)}</span>`],
+          ['Asked by', esc(askerName || 'Anonymous participant')],
+          ...(askerEmail ? ([["Asker's email", esc(askerEmail)]] as Array<[string, string]>) : []),
+        ])}
+        ${paragraph(askerEmail
+          ? 'Simply <strong>reply to this email</strong> — your reply goes straight to the person who asked.'
+          : 'The person asked anonymously, so please send your answer to the meeting organiser, who can share it with the room.')}
       `,
     }),
   }),

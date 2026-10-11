@@ -203,3 +203,33 @@ export type UpdateUserInput = z.infer<typeof UpdateUserSchema>
 export type CreateMeetingInput = z.infer<typeof CreateMeetingSchema>
 export type UpdateMeetingInput = z.infer<typeof UpdateMeetingSchema>
 export type SubmitAttendanceInput = z.infer<typeof SubmitAttendanceSchema>
+
+// ── Meeting Q&A ───────────────────────────────────────────────────────
+
+export const AskQuestionSchema = z.object({
+  question: z.string().trim().min(3, 'Please type your question').max(1000, 'Questions are limited to 1000 characters'),
+  asker_name: z.string().trim().max(150).optional().or(z.literal('')),
+  asker_email: z.string().trim().email('Please enter a valid email address').max(150).optional().or(z.literal('')),
+})
+
+export const UpdateQuestionSchema = z
+  .object({
+    status: z.enum(['pending', 'answered', 'dismissed']).optional(),
+    on_screen: z.boolean().optional(),
+    is_highlighted: z.boolean().optional(),
+  })
+  .refine(v => v.status !== undefined || v.on_screen !== undefined || v.is_highlighted !== undefined, { message: 'Nothing to update' })
+
+export const AnswerQuestionSchema = z.object({
+  answer: z.string().trim().min(1, 'Please type an answer').max(4000),
+  email_asker: z.boolean().optional().default(false),
+})
+
+export const ForwardQuestionSchema = z.object({
+  email: z.string().trim().email('Please enter a valid email address').max(150),
+  note: z.string().trim().max(1000).optional(),
+})
+
+export const QnaSettingsSchema = z.object({
+  qna_open: z.boolean(),
+})

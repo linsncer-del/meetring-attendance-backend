@@ -7,6 +7,7 @@ import { generalRateLimit } from './middleware/rateLimit.middleware.js'
 import { metricsMiddleware, registry } from './middleware/metrics.middleware.js'
 
 // ── Route modules ─────────────────────────────────────────────────────
+import qnaRouter from './qna/qna.routes.js'
 import authRouter from './Auth/Authroutes.js'
 import deptRouter from './departments/departments.routes.js'
 import usersRouter from './users/users.routes.js'
@@ -78,6 +79,7 @@ app.route('/api/reports', reportsRouter)
 app.route('/api/notifications', notifRouter)
 app.route('/api/audit', auditRouter)
 app.route('/api/documents', documentsRouter)
+app.route('/api/qna', qnaRouter)
 
 // ── 404 handler ───────────────────────────────────────────────────────
 
